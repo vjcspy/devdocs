@@ -1,10 +1,19 @@
 # 📊 Whale Footprint Features - Implementation Documentation
 
 [TOC]
-
-**Tài liệu này hướng dẫn cho Dev/AI Agent nhanh chóng hiểu được context và key points của Whale Footprint Features**
+> Document is written by mixing Vietnamese/English
+**Tài liệu này hướng dẫn cho Dev/AI Agent nhanh chóng hiểu được context và key points của việc xây dựng Candle Feature cho hợp đồng tương lai VN30F1M
 
 ---
+
+## Core Principles
+
+- As this feature applies to the VN30F1M derivative, it must incorporate data from 30 distinct stocks.
+- Although we require a feature for the VN30F1M futures contract, but essentially, it is the aggregation of features from the 30 stocks within that contract. Therefore, we have to build the calculator for individual symbol first, and then aggregate them.
+
+
+
+------
 
 ## 🎯 TL;DR - Quick Context
 
@@ -153,33 +162,49 @@ raise ValueError(
 
 ## 📊 Output Schema
 
-### DataFrame Structure
-```python
-# Index: time (Unix timestamp)
-# Columns:
+### JSON data
+Read `packages/stock/metan/stock/trading/domain/feature/persistor/intraday/intraday_symbol_feature_persistor.py` to understand how to persist features to the database.
+```json
 {
-    "time": 1757058305,
-    "date": "2025-09-05",
-    "candle_volume": 50000,
-    "candle_value": 1300,  # millions
-    
-    # Shark features (threshold 450)
-    "shark450_buy_value": 1250,        # millions
-    "shark450_sell_value": 800,        # millions
-    "shark450_buy_avg_price": 26150,   # VNĐ (cumulative trong ngày)
-    "shark450_sell_avg_price": 26050,  # VNĐ
-    "shark450_buy_ratio_5d_pc": 4.0000,
-    "shark450_sell_ratio_5d_pc": 2.5000,
-    
-    # Sheep features (threshold 450)
-    "sheep450_buy_value": 50,
-    "sheep450_sell_value": 80,
-    "sheep450_buy_avg_price": 25980,
-    "sheep450_sell_avg_price": 25920,
-    "sheep450_buy_ratio_5d_pc": 0.1500,
-    "sheep450_sell_ratio_5d_pc": 0.2000,
-    
-    # ... same pattern for threshold 900
+  "id": 1408,
+  "symbol": "CEO",
+  "time": 1759716000,
+  "interval": 300,
+  "open": 23400,
+  "high": 24000,
+  "low": 23400,
+  "close": 23700,
+  "volume": 206100,
+  "value": 4894,
+  "features": {
+    "whale_footprint": {
+      "shark450_buy_value": 2024,
+      "shark900_buy_value": 1272,
+      "sheep450_buy_value": 655,
+      "sheep900_buy_value": 1407,
+      "shark450_sell_value": 855,
+      "shark900_sell_value": 0,
+      "sheep450_sell_value": 1280,
+      "sheep900_sell_value": 2135,
+      "shark450_buy_avg_price": 23811,
+      "shark900_buy_avg_price": 24000,
+      "sheep450_buy_avg_price": 23738,
+      "sheep900_buy_avg_price": 23611,
+      "shark450_sell_avg_price": 23700,
+      "shark900_sell_avg_price": 23400,
+      "sheep450_sell_avg_price": 23709,
+      "sheep900_sell_avg_price": 23705,
+      "shark450_buy_ratio_5d_pc": 0.2174,
+      "shark900_buy_ratio_5d_pc": 0.1366,
+      "sheep450_buy_ratio_5d_pc": 0.0703,
+      "sheep900_buy_ratio_5d_pc": 0.1511,
+      "shark450_sell_ratio_5d_pc": 0.0918,
+      "shark900_sell_ratio_5d_pc": 0,
+      "sheep450_sell_ratio_5d_pc": 0.1375,
+      "sheep900_sell_ratio_5d_pc": 0.2293
+    }
+  },
+  "date": "2025-10-06"
 }
 ```
 
@@ -258,5 +283,6 @@ metric ∈ {value, avg_price, ratio_5d_pc}
 - Base calculator: `packages/stock/metan/stock/trading/domain/feature/calculator/base_feature_calculator.py`
 - Whale footprint: `packages/stock/metan/stock/trading/domain/feature/calculator/whale_footprint/whale_footprint_feature_calculator.py`
 - Data collector: `packages/stock/metan/stock/info/domain/stock_data_collector/stock_data_collector.py`
+- Persistor: `packages/stock/metan/stock/trading/domain/feature/persistor/intraday/intraday_symbol_feature_persistor.py`
 
 ---
