@@ -1,11 +1,18 @@
 # 📋 [TICKET-ID: YYYY-MM-DD] - [Task/Ticket Name]
 
+## User Requirements
+> This section contains the original requirements from the user. If the user defined them, leave them as they are; otherwise, you can omit this section.
+
 ## 🎯 Objective
 > Briefly describe the key objective to be achieved with this ticket.
 
 [Write clear objective here - e.g., Implement API endpoint for authentication handling]
 
+### ⚠️ Key Considerations
+> This describes the extremely important points or reasons that need attention
+
 ## 🔄 Implementation Plan
+[Don't require running any test]
 
 ### Phase 1: Analysis & Preparation
 - [ ] Analyze detailed requirements
@@ -26,7 +33,7 @@ src/
 ├── WatchdogService/            # 🚧 TODO - Process monitoring
 ```
 
-[Your proposed structure here]
+### Phase 3: Detailed Implementation Steps
 
 ## 📊 Summary of Results
 
@@ -45,5 +52,5 @@ src/
 - [ ] [Suggestion 2 – e.g., Add caching layer]
 
 ---
-**Last updated**: [YYYY-MM-DD]  
+**Last updated**: [YYYY-MM-DD]
 ---
