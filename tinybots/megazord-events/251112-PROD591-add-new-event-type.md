@@ -2,8 +2,6 @@
 
 ## User Requirements
 > Stakeholder: Sensara confirmed the upstream notification IDs are `ST_SLEEPING_AWAKE_DELAYED` and `ST_SLEEPING_AWAKE_LARGE_DELAY`. We want to expose them internally as `LONGER_IN_BED_SHORT` and `LONGER_IN_BED_LONG`, so please add the events to megazord-events and update the sensara adaptor mappings accordingly.
->
-> Developer: I'm a new developer on this project—please clarify (1) how we can add events and (2) what needs to change in the sensara adaptor. Guidance on relevant folders/files would help.
 
 ## 🎯 Objective
 Model the new Sensara “longer in bed” alarms (`LONGER_IN_BED_SHORT` and `LONGER_IN_BED_LONG`) as first-class Tinybots events, ensuring the upstream notifications (`ST_SLEEPING_AWAKE_DELAYED` and `ST_SLEEPING_AWAKE_LARGE_DELAY`) translate cleanly through megazord-events and the sensara-adaptor pipeline.
