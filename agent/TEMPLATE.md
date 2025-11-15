@@ -50,7 +50,3 @@ src/
 ### 🔮 Future Improvements (Optional)
 - [ ] [Suggestion 1 – e.g., Optimize query performance]
 - [ ] [Suggestion 2 – e.g., Add caching layer]
-
----
-**Last updated**: [YYYY-MM-DD]
----

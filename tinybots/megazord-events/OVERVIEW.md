@@ -11,11 +11,85 @@
   3. Registration hooks to external sensors/adaptors (currently Sensara) so they know which robot/event pairs to send us.
 - Relies heavily on `tiny-backend-tools` for HTTP middleware, database access, validation, permissions, cron jobs, and SQS wrappers.
 
+
+
+## 2. Important term
+
+### schema
+
+- table `event_schema`
+
+- typing: `src/models/domains/EventSchemaDomain.ts`
+
+Ban đầu nó sẽ được load từ `schemas/events` files, sync từ trong này vào trong db if it doesn't already exist
+
+Nó sẽ được reload liên tục trong `src/services/EventSchemasService.ts` dựa trên cronjob(cronjob sử dụng từ `tiny-backend-tool` repository) để cho vào cache mục đích để lấy cho nhanh
+
+### provider
+
+- table `event_provider`
+- typing `src/models/domains/ProviderDomain.ts`
+
+Similarly to `schema`, it is also cached and is reloaded into the cache periodically by cronjob
+
 ## 2. Controllers / Public Surface
 ### IncomingEventsController (`src/controllers/IncomingEventsController.ts`)
 - `GET /internal/v1/events/robots/:robotId/incomings` — filter stored events by robot, event type (`event_name`), and `created_since`.
 - `POST /internal/v1/events/robots/:robotId/incomings` — create an incoming event from an internal service (validates provider & event schema first).
 - `POST /v1/events/robots/:robotId/incomings/simulate` — academy-only endpoint (enabled when `ENVIRONMENT=academy`) allowing dashboard users to simulate events if they own the robot (`userRobotAccessValidator`).
+
+#### Flows
+
+##### Create Incomming Event
+
+Chủ yếu quan tâm đến việc tạo event. Hiện tại chưa rõ là bên nào is internal calling to create new event.
+
+```typescript
+export class CreateIncomingEventBodyDto {
+  @Expose()
+  @IsString()
+  providerName!: string
+
+  @Expose()
+  @IsString()
+  eventName!: string
+
+  @Expose()
+  @IsNumber()
+  @IsOptional()
+  // level can be optional in the DTO request but later will be filled from eventSchema via provide()
+  level?: number
+
+  @Expose()
+  @IsString()
+  referenceId?: string
+ }
+```
+
+
+
+- Khi API nội bộ tạo sự kiện mới, service `IncomingEventsService` tra cứu `schema` & `provider` hợp lệ, ghi bản ghi vào bảng
+  `incoming_event`, sau đó emit sự kiện vào event bus (src/services/IncomingEventsService.ts:63).
+- EventSubscriptionsService đã đăng ký listener từ lúc init, nên mỗi incoming event mới sẽ dẫn tới
+  `handleNewlyAddedIncomingEvent`, service này lấy tất cả subscription còn active của robot cho đúng eventTypeId (src/
+  services/EventSubscriptionService.ts:132).
+- Với từng subscription tìm thấy, hệ thống tạo một `outgoing_event` để theo dõi trạng thái gửi đi nhờ
+  OutgoingEventsService.create, rồi attach thêm dữ liệu incoming event cho payload (`src/services/
+  EventSubscriptionService.ts:173`, `src/services/OutgoingEventService.ts:32`).
+
+Ý Nghĩa Khối switch Subscription
+- SubscriptionType.SERVICE_SUBSCRIPTION: publish thông báo qua SQS tới status queue nội bộ bằng notify,
+  payload là dữ liệu outgoing event đã chuẩn hóa kèm link để consumer truy ngược API nếu cần (`src/services/
+  EventSubscriptionService.ts:187`).
+- SubscriptionType.TRIGGER_SUBSCRIPTION: thay vì push lên queue, gọi TriggerService.sendTrigger để POST tới Trigger
+  Service, truyền CreateTriggerDto với thông tin `robot`, `level`, `event type` nhằm kích hoạt `automation/trigger` downstream
+  (`src/services/EventSubscriptionService.ts:196`, `src/services/TriggerService.ts:10`).
+    - call to endpoint: `internal/v1/triggers/triggers`
+- default: fallback trở lại SQS để đảm bảo những loại subscription chưa biết vẫn nhận thông báo như service
+  subscription bình thường (src/services/EventSubscriptionService.ts:199).
+- Hai nhánh SERVICE & default dùng chung notify, hàm này đóng gói message với metadata from, to, link,
+  payload, rồi đẩy lên hàng đợi cấu hình tại statusQueueConfig.address qua SQS.ContextSQS (src/services/
+  EventSubscriptionService.ts:322).
 
 ### EventSubscriptionController (`src/controllers/EventSubscriptionsController.ts`)
 - `POST /internal/v1/events/robots/:robotId/subscriptions` — create or trigger-type subscriptions (takes `eventNames`, optional `until`, optional `isTriggerSubscription`).
