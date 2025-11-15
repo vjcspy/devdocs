@@ -2,13 +2,6 @@
 
 **TL;DR**: Provides Supabase-backed ingestion of Vietnamese equity ticks/prices, normalizes them against TCBS intraday candles, and produces per-candle "whale footprint" features that get persisted back into Supabase for downstream traders and bots.
 
-## Table of Contents
-- [Repo Purpose & Interactions](#repo-purpose--interactions)
-- [Inventory](#inventory)
-- [Data & Integration Map](#data--integration-map)
-- [Key Logic](#key-logic)
-- [External Dependencies & Cross-Service Contracts](#external-dependencies--cross-service-contracts)
-
 ## Repo Purpose & Interactions
 The `packages/stock` module is the shared data/feature layer for any AI agent that needs reliable intra-day Vietnamese stock information. It pulls authoritative tick and daily price history from Supabase, fetches interval candles from the third-party TCBS API, replays ticks into aligned `TickCandle`s, computes feature packs (currently "whale footprint"), and upserts those enriched candles back into Supabase. Other workspace packages (CLI/services) call into this module instead of duplicating ingestion logic.
 
@@ -58,6 +51,7 @@ packages/stock/
 ```
 
 ## Data & Integration Map
+
 | Entity | Source | Fields & Shape | Relationships / Notes |
 | --- | --- | --- | --- |
 | `Stock` (`stock/models.py`) | Supabase `stock` | `code`, `exchange`, industry codes, historic metadata | Used to determine exchange-specific expectations (e.g., expected candle counts) |
@@ -73,7 +67,73 @@ packages/stock/
 3. Feature calculators consume those grouped candles to compute analytics (volume/value splits above specific VND thresholds, rolling baselines, etc.).
 4. `IntradaySymbolFeaturePersistor` merges per-candle features into JSON namespaces and upserts them into Supabase so other services can stream/query them.
 
+
+
+### 🔑 Key Concepts
+
+### 1. Phân loại Shark/Sheep theo Threshold
+
+**Input**: Trade value (tính bằng raw units)
+
+```python
+trade_value_raw = price × volume  # đơn vị: đồng (VNĐ)
+```
+
+**Classification Logic** (per threshold T):
+
+- T được định nghĩa trong **millions** (e.g., 450 = 450 triệu VNĐ)
+- So sánh: `trade_value_raw >= T * 1_000_000`
+  - ✅ → **shark**: Giao dịch lớn (nhà đầu tư tổ chức)
+  - ❌ → **sheep**: Giao dịch nhỏ (nhà đầu tư cá nhân)
+
+**Default Thresholds**: `[450, 900]` (450M và 900M VNĐ)
+
+### 2. Sides (Hướng Giao Dịch)
+
+Từ `TickAction.side`:
+
+- `'B'` (Buy): Lệnh MUA
+- `'S'` (Sell): Lệnh BÁN
+- `'Undefined'`: Phiên ATO/ATC (KHÔNG tính trong whale footprint)
+
+### 3. Point-in-Time vs Accumulative vs Moving-Window
+
+**Naming Convention trong Code**:
+
+| Loại              | Prefix     | Ví dụ                      | Mô tả                                            |
+| ----------------- | ---------- | -------------------------- | ------------------------------------------------ |
+| **Point-in-time** | _(none)_   | `high`, `low`, `close`     | Giá trị tại thời điểm trong candle               |
+| **Accumulative**  | `accum_`   | `accum_shark450_buy_value` | Cộng dồn trong khoảng thời gian (e.g., intraday) |
+| **Moving-window** | `mov_{N}_` | `mov_15_shark_ratio`       | Trung bình trượt N periods                       |
+
+**Trong WhaleFootprintFeatureCalculator Phase 1**:
+
+- Các features hiện tại là **point-in-time** (per candle)
+- Average prices được track **cumulatively** trong ngày
+
+### 4. Monetary Units - QUAN TRỌNG ⚠️
+
+**Tất cả giá trị tiền tệ (value) trong application đều có đơn vị TRIỆU (millions)**
+
+```python
+# ✅ ĐÚNG - Flow trong code
+trade_value_raw = price × volume          # raw units (VNĐ)
+threshold_scaled = 450 * 1_000_000        # scale threshold to raw
+is_shark = trade_value_raw >= threshold_scaled
+value_in_millions = trade_value_raw / 1_000_000  # convert to millions
+
+# 📊 Output
+"shark450_buy_value": 1250  # = 1,250 triệu VNĐ = 1.25 tỷ VNĐ
+```
+
+**Lý do**:
+
+- Tránh overflow khi làm việc với số lớn
+- Dễ đọc, dễ hiểu trong báo cáo
+- Consistency across entire application
+
 ## Key Logic
+
 ### StockDataCollector (`metan/stock/info/domain/stock_data_collector/stock_data_collector.py`)
 
 > Really important class to fetch and build stock info data from database

@@ -13,14 +13,14 @@ Phân loại theo thuộc tính đối tượng và cách tính(point-in-time, *
 <aside>
 💡Nên nhớ các features này là dành cho phái sinh [VN30F1M](https://finance.vietstock.vn/chung-khoan-phai-sinh/VN30F1M/hdtl-tong-quan.htm) nên sẽ cần cộng theo tỷ trọng của 30 cổ phiếu. Tuy nhiên, trước mắt cứ tính cho từng cổ phiếu đã, bước cộng theo tỷ trọng khá đơn giản nên có thể làm cuối cùng.
 </aside>
-
 ## Features
+
 - `shark_buy_value`,  `shark_sell_value` mua bán của shark trong **`*candle`***
+  
+    Để theo value như này có vẻ không ổn, có thể nomalize với giá trị giao dịch trung bình 5 ngày (DONE)
     
-    Để theo value như này có vẻ không ổn, có thể nomalize với giá trị giao dịch trung bình 5 ngày (đã làm)
-    
-- `avg_price_shark_buys`, `avg_price_shark_sells` Mức giá giao dịch BÌNH QUÂN của các lệnh MUA/BÁN lớn.
-    
+- `avg_price_shark_buys`, `avg_price_shark_sells` Mức giá giao dịch BÌNH QUÂN của các lệnh MUA/BÁN lớn. (DONE)
+  
     Cho một cái nhìn để biết được hành vi của shark là đang mua/bán giá thấp hay là mua giá cao,
     
     *Insight:* Nếu `avg_price_shark_buys > avg_price_shark_sells`, có thể phe mua lớn chấp nhận mua giá cao hơn phe bán lớn.
