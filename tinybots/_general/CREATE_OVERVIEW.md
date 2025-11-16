@@ -14,13 +14,11 @@ Steps:
 5) Data & Integration Map: Infer domain entities, schemas, and relations. Map external systems (databases, message brokers, third-party APIs, internal repos). For each integration: protocol, endpoints/topics, auth, timeouts/retries, and where called from.
 6) Purpose Synthesis: State the repo’s primary mission, bounded context, and how it interacts with other repos/services (directionality and contracts).
 7) Gaps & Risks: List TODOs, missing tests, dead code, secrets risk, unclear ownership.
-8) Output Assembly:
+8) Output Assembly (You can always define new terms and concepts if needed. I don't want tables; I want to use headings instead)
    - Title, TL;DR, Table of Contents
-   - “Repo Purpose & Interactions” (narrative + integration table)
-   - “Controllers / Public Surface”
-   - “Key Services/Repository & Logic”
-   - Runtime / Request Flow
+   - Repo Purpose & Interactions
+   - Controllers / Public Surface
+   - Key Services/Repository & Logic
    - External Dependencies & Cross-Service Contracts: Analyze the source code and identify any dependencies or connections to external repositories
-   - Notes (Important things)
 
-Deliverable: Update docs to OVERVIEW.md. Take a deep breath and work on this problem step-by-step. You can always define new terms and concepts if needed.
+Deliverable: Take a deep breath and work on this problem step-by-step.
