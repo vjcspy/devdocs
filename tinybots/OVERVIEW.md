@@ -31,36 +31,81 @@ Everything assumes Yarn 3 workspaces, MySQL backends, Kong for auth headers, and
 
 ### Automation Core
 
-| Repo | Purpose | Key Integrations | Notes |
-| --- | --- | --- | --- |
-| `megazord-events` (`devdocs/tinybots/megazord-events/OVERVIEW.md`) | Source-of-truth for `incoming_event`, `event_subscription`, `outgoing_event` tables. Accepts `/internal/v1/events/robots/:robotId/incomings` posts, validates schemas/providers, persists, and fan-outs through AWS SQS, Trigger Service calls, and adaptor registrations. | - Consumes Tinybots HTTP requests from robot apps or adaptors.<br>- Publishes to `statusQueue` (SQS), Trigger Service (`/internal/v1/triggers/triggers`), and Sensara adaptor registration endpoints. | Uses `tiny-backend-tools` middleware stack, Awilix DI, Cron-based schema/provider caches, and `AggregatedEventsAdaptorsService` to inform external sensors about subscriptions. |
-| `m-o-triggers` (`devdocs/tinybots/m-o-triggers/OVERVIEW.md`) | Trigger scheduler and API living on `TinyDatabaseAppAuthenticated`. Handles creation (`POST /internal/v1/triggers/triggers`), robot-facing reads, and admin trigger-setting management. Schedules triggers via Cron, concurrency windows, and per-robot SQS queues. | - Receives trigger requests from `megazord-events` (`TriggerService`).<br>- Emits robot-specific jobs to `${baseRobotQueueAddress}${robotId}` on SQS.<br>- Reads/writes `event_trigger` and `event_trigger_setting` tables. | `TriggerSchedulerParser` enforces day-of-week/time windows, TTL, and `maxConcurrentTriggers`. `EventTriggerSettingsCacheService` caches DB rows to keep scheduling cheap. |
-| `sensara-adaptor` (`devdocs/tinybots/sensara-adaptor/OVERVIEW.md`) | Bridges Sensara resident telemetry to Tinybots. Registers SSE streams via `SensaraEventSource`, persists events (`sensara_event*` tables), manages resident↔robot bindings, and exposes internal endpoints for pollers, notifications, and pilot reports. | - Pulls/pushes to Sensara REST/SSE (`/v3/streams`, `/v3/notifications`).<br>- Emits Tinybots events by calling `EventService.postEvent` (the `megazord-events` ingestion endpoint).<br>- Uses Slack webhooks for alerting. | Includes long-running jobs: `SensaraEventsJob` (SSE + heartbeats) and pollers for last-known location + activity. Admin routes require Kong + permission middleware. |
+#### `megazord-events` (`devdocs/tinybots/megazord-events/OVERVIEW.md`)
+- **Purpose**: Acts as the source-of-truth for `incoming_event`, `event_subscription`, and `outgoing_event` tables. Receives `/internal/v1/events/robots/:robotId/incomings`, validates schemas/providers, persists, and fans events out.
+- **Key Integrations**: Consumes Tinybots HTTP posts from robot apps/adaptors, publishes to AWS SQS `statusQueue`, calls Trigger Service (`/internal/v1/triggers/triggers`), and hits Sensara adaptor registration endpoints.
+- **Notes**: Built on `tiny-backend-tools` with Awilix DI, Cron caches for schemas/providers, and `AggregatedEventsAdaptorsService` so external sensors know which robots/events to track.
+
+#### `m-o-triggers` (`devdocs/tinybots/m-o-triggers/OVERVIEW.md`)
+- **Purpose**: Trigger scheduler/API extending `TinyDatabaseAppAuthenticated`. Handles trigger creation (`POST /internal/v1/triggers/triggers`), robot reads, and admin trigger-setting management with Cron scheduling plus concurrency windows.
+- **Key Integrations**: Receives trigger requests from `megazord-events` via `TriggerService`, emits robot-specific jobs to `${baseRobotQueueAddress}${robotId}` (SQS), and reads/writes `event_trigger` + `event_trigger_setting` tables.
+- **Notes**: `TriggerSchedulerParser` enforces day-of-week/time windows, TTL, and `maxConcurrentTriggers`; `EventTriggerSettingsCacheService` caches DB rows for fast scheduling.
+
+#### `sensara-adaptor` (`devdocs/tinybots/sensara-adaptor/OVERVIEW.md`)
+- **Purpose**: Bridges Sensara resident telemetry to Tinybots. Maintains SSE streams through `SensaraEventSource`, persists events in `sensara_event*`, manages resident↔robot mappings, and exposes internal poller/notification/report endpoints.
+- **Key Integrations**: Talks to Sensara REST/SSE (`/v3/streams`, `/v3/notifications`), emits Tinybots events via `EventService.postEvent` (feeding `megazord-events`), and notifies Slack on failures.
+- **Notes**: Long-running `SensaraEventsJob` handles SSE + heartbeat restarts; pollers fetch last location/activity. Admin routes use Kong + permission middleware.
 
 ### Experience & Business Apps
 
-| Repo | Purpose | Key Surfaces | Notes |
-| --- | --- | --- | --- |
-| `wonkers-api` | Customer dashboard REST API (“Wonkers”). Lets users view robot subscriptions/status, proxies to Odoo when needed, and enforces Kong auth. | `/v1/...` REST endpoints documented at https://api.tinybots.academy/docs/Wonkers.html | Handles user dashboards; relies on env vars for Odoo credentials and uses `ci/localtest.sh` for combined test suites. |
-| `wonkers-accounts` | Manages dashboard accounts, permissions, login flows, and group membership. Express + Awilix service with controllers for `Account`, `Group`, `Login`, `Permission`. | Internal `/internal/v1/accounts/*` style endpoints (see `src/controller`). | Uses `tiny-backend-tools` (`tiny-tools`) for DB access, `kong-js` for auth header validation, MySQL via `mysql2`. |
-| `wonkers-robots` | Hardware management service for dashboard admins (robot inventory, metadata). Legacy robot endpoints remain in `wonkers-api`. | Robot CRUD/admin endpoints (authenticated via Kong). | Acts as system of record for robot hardware when interacting with dashboard UI. |
-| `wonkers-taas-orders` | Workflow engine for TaaS (tinybots-as-a-service) orders: create/update orders, email flows, integrate with fulfillment. | Controllers under `src/` expose order CRUD, email notifications, and internal admin endpoints. | Coordinates with `wonkers-taas-order-activation` for long-running activation jobs. |
-| `wonkers-taas-order-activation` | Batch/cron-style service that runs activation jobs for TaaS orders. | Background job entrypoints triggered via `/internal/v1/order-activation/job/run`. | Also has an HTTP surface for manual job runs; interacts with TaaS order data. |
-| `wonkers-graphql` (`devdocs/tinybots/wonkers-graphql/report_overview.md`) | Apollo GraphQL gateway consolidating data from dashboard DB (`wonkers-db`) and Tinybots DB (`typ-e`). Provides reports like Robot Usage, retention KPIs, etc. | GraphQL schema built with Nexus; resolvers query Prisma models across two DB connections. | Handles heavy aggregation (time filters, multi-permission checks). Gradually replacing older REST data sources. |
+#### `wonkers-api`
+- **Purpose**: Customer dashboard REST API for viewing robot subscriptions/status and proxying limited Odoo calls, all behind Kong auth.
+- **Key Surfaces**: `/v1/...` REST endpoints, documented at https://api.tinybots.academy/docs/Wonkers.html.
+- **Notes**: Depends on Odoo credentials and bundles lint+unit+integration tests via `ci/localtest.sh`.
+
+#### `wonkers-accounts`
+- **Purpose**: Handles dashboard accounts, permissions, login flows, and groups with controllers for Account, Group, Login, Permission.
+- **Key Surfaces**: Internal `/internal/v1/accounts/*` style routes exposed from `src/controller`.
+- **Notes**: Uses `tiny-backend-tools` (published as `tiny-tools`), `kong-js` header validation, and `mysql2` for persistence.
+
+#### `wonkers-robots`
+- **Purpose**: Admin-facing robot hardware management; manages metadata/inventory outside the legacy `wonkers-api`.
+- **Key Surfaces**: Robot CRUD/admin endpoints protected by Kong.
+- **Notes**: Serves as the canonical source for robot details consumed by dashboards.
+
+#### `wonkers-taas-orders`
+- **Purpose**: Workflow engine for Tinybots-as-a-Service orders (CRUD, status updates, email notifications, fulfillment hooks).
+- **Key Surfaces**: Controllers under `src/` offering internal admin endpoints for order lifecycle actions.
+- **Notes**: Coordinates with `wonkers-taas-order-activation` for background activation jobs and hosts email templates under `email/`.
+
+#### `wonkers-taas-order-activation`
+- **Purpose**: Cron/batch service that executes activation jobs for TaaS orders.
+- **Key Surfaces**: Background job API at `/internal/v1/order-activation/job/run` plus optional manual triggers.
+- **Notes**: Reads the same order data as `wonkers-taas-orders` and focuses on long-running job orchestration.
+
+#### `wonkers-graphql` (`devdocs/tinybots/wonkers-graphql/report_overview.md`)
+- **Purpose**: Apollo GraphQL gateway aggregating Dashboard DB (`wonkers-db`) + Tinybots DB (`typ-e`) for reports (Robot Usage, retention KPIs, etc.).
+- **Key Surfaces**: Nexus-based GraphQL schema/resolvers querying via Prisma across two database connections.
+- **Notes**: Enforces multiple permission checks, heavy filtering, and gradually replaces legacy REST data sources.
 
 ## Shared Libraries, Tooling & Schemas
 
-| Repo / Path | Role in the Platform |
-| --- | --- |
-| `tiny-backend-tools` | Foundational toolkit exported via `lib/index.ts`: base `TinyDatabaseApp*` classes, middleware (context, serializer, validation, error handling), logging, Awilix modules, Cron + SQS providers, DB abstractions, permission providers, and email/TOTP helpers. Every service above extends these base apps to inherit Kong auth, context logging, and config loading (`loadConfigValue`). |
-| `tiny-internal-services` (`devdocs/tinybots/tiny-internal-services/OVERVIEW.md`) | Shared SDK with DTOs (`TinybotsEvent`, Sensara payloads, Taas orders, robots) and axios-based HTTP clients for internal services (Event Service, Sensara adaptor, Notification Service, Robot Accounts, Taas). Ensures consistent logging + error mapping via `tb-ts-http-errors`. |
-| `tiny-internal-services-mocks` | Companion package exporting mocks/stubs (RobotAccountServiceMock, EventServiceMocks, SensaraAdaptorServiceMocks, etc.) so unit tests in other repos can avoid real HTTP calls. |
-| `tiny-specs` | Codegen pipeline that turns OpenAPI/Swagger specs (`specs/`) into TypeScript validators/types. `yarn all` regenerates `dist/` plus docs; used by multiple services to share contract-accurate DTOs. |
-| `typ-e` | Java tool (Maven project) that manages the Tinybots operational MySQL schema (“organizes our database schema”). Used to evolve tables for robot accounts, scripts, schedules, etc. |
-| `wonkers-db` | Similar Java schema management project but targeted at the dashboard (TaaS/order) database. Keeps DDL for `taas_order`, `dashboard_robot`, relations, etc. |
-| `db/docker-compose.yaml` | Local infrastructure bootstrap (MySQL containers, etc.) to run services end-to-end during development. |
-| `devdocs/` | Markdown knowledge base for every repo, release runbook, and onboarding instructions (e.g., per-service `OVERVIEW.md`, investigations, KPI definitions). |
-| `AGENTS.md` | Playbook explaining how AI agents should behave inside this workspace (command policies, style guides, etc.). |
+#### `tiny-backend-tools`
+- **Role**: Provides base `TinyDatabaseApp*` classes, Express middleware (context, serializer, validation, error handling), logging, Awilix modules, Cron/SQS providers, DB abstractions, permission providers, and email/TOTP utilities. All runtime services extend these base apps to inherit Kong auth + context logging.
+
+#### `tiny-internal-services` (`devdocs/tinybots/tiny-internal-services/OVERVIEW.md`)
+- **Role**: Shared SDK exporting DTOs (`TinybotsEvent`, Sensara payloads, Taas orders) and axios-based HTTP clients (Event Service, Sensara adaptor, Notification Service, Robot Accounts, Taas). Enforces consistent logging and error handling via `tb-ts-http-errors`.
+
+#### `tiny-internal-services-mocks`
+- **Role**: Ships mocks/stubs (RobotAccountServiceMock, EventServiceMocks, SensaraAdaptorServiceMocks, etc.) for unit tests across repos, preventing real HTTP calls.
+
+#### `tiny-specs`
+- **Role**: Generates TypeScript validators/types from OpenAPI specs (`specs/`). `yarn all` refreshes code + docs; services consume the generated artifacts for contract-accurate DTOs.
+
+#### `typ-e`
+- **Role**: Java/Maven project managing the Tinybots operational MySQL schema (robot accounts, schedules, scripts). Keeps schema evolution consistent.
+
+#### `wonkers-db`
+- **Role**: Schema management tool for the dashboard/TaaS database (`taas_order`, `dashboard_robot`, relations). Mirrors `typ-e` but for the business-facing schema.
+
+#### `db/docker-compose.yaml`
+- **Role**: Local infrastructure definition (MySQL containers, etc.) enabling end-to-end testing across services.
+
+#### `devdocs/`
+- **Role**: Markdown knowledge base per repo (e.g., `devdocs/tinybots/<repo>/OVERVIEW.md`), investigations, KPI memos, and onboarding guides.
+
+#### `AGENTS.md`
+- **Role**: Playbook describing how AI agents should work in this workspace (command policies, editing rules, style guides).
 
 ## Cross-Service Data Flows
 
