@@ -43,11 +43,7 @@ src/
 - [e.g., API endpoint works with response time < 200ms]
 
 ## 🚧 Outstanding Issues & Follow-up
-
-### ⚠️ Known Issues (Optional)
+> If you have any outstanding issues or any question needs to clarify, list them here. Otherwise, you can omit this section.
+### ⚠️ Issues/Clarifications (Optional)
 - [ ] [Issue 1 – Describe and note impact]
 - [ ] [Issue 2 – Describe and note impact]
-
-### 🔮 Future Improvements (Optional)
-- [ ] [Suggestion 1 – e.g., Optimize query performance]
-- [ ] [Suggestion 2 – e.g., Add caching layer]
