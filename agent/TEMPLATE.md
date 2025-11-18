@@ -36,6 +36,7 @@ src/
 ### Phase 3: Detailed Implementation Steps
 
 ## 📊 Summary of Results
+> Do not summarize the results until the implementation is done and I request it
 
 ### ✅ Completed Achievements
 - [List major accomplishments]
