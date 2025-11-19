@@ -1,16 +1,28 @@
 # 📋 [PROD594: 2025-11-12] - New Repository: azi-3-status-jobs
 
 ## User Requirements
-> - Run a toilet-activity experiment for a single, pre-selected user by extending `azi-3` status checks (speed over generality).
-> - Add `NO_TOILET_ACTIVITY_ALARM` to the Megazord events schema so downstream services can subscribe/trigger on it.
-> - Between time A and time B each day: at time A subscribe to `TOILET_ACTIVITY` events for that user, monitor the next two hours, and reschedule checks every time a new visit is observed (bounded by time B).
-> - If no `TOILET_ACTIVITY` arrives within a two-hour window, emit `NO_TOILET_ACTIVITY_ALARM`, log it for the script node, and immediately start monitoring the next two-hour slice (still capped by time B).
-> - Implement the logic inside `azi-3-status-check` or the new `azi-3-status-jobs` repository (this plan covers the new repo path).
+
+This is an experiment for a specific user (we could think about a more general approach, but speed is more important. A very specific approach for this user is fine)
+
+What d you need:
+
+- add NO_TOILET_ACTIVITY_ALARM to megazord event schema
+
+It should do the following
+
+- Between time A and time B do the following
+- At time A subscribe to TOILET_ACTIVITY event in megazord events and check from now to 2 hours in the future for a specific user
+- If a TOILET_ACTIVITY event is received in these 2 hours plan a new check from now to 2 hours in the future (or until time B, which ever comes first)
+- If no TOILET_ACTIVITY event is received after 2 hours, send a new event to megazord event called
+NO_TOILET_ACTIVITY_ALARM
+then start a new check  from now to 2 hours in the future (or until time B, which ever comes first)
 
 ## 🎯 Objective
+>
 > Build and document a focused `azi-3-status-jobs` service plus ancillary schema changes that can watch toilet activity for one resident, post `NO_TOILET_ACTIVITY_ALARM` events when the resident skips two hours, and record every window in the shared `status_check*` tables so scripts can branch on the result.
 
 ### ⚠️ Key Considerations
+
 - Keep scope to one resident/robot but structure config (per-robot windows, timezone) so we can add more without rewriting.
 - `TOILET_ACTIVITY` originates from Sensara (`sensara-adaptor` ➜ `megazord-events`); alarms must flow back through Megazord so triggers/dashboards continue to work.
 - All monitoring state must live in `status_check`, `status_check_poller`, and `status_check_record` so script nodes can read outcomes; no ephemeral memory.
@@ -18,15 +30,18 @@
 - SQS delivery is at-least-once, so the worker must deduplicate, replay missed events via `EventService.getEvents`, and avoid emitting duplicate alarms for the same gap.
 
 ## 🔄 Implementation Plan
+
 [Don't require running any test]
 
 ### Phase 1: Analysis & Preparation
+
 - [ ] Analyze detailed requirements
   - **Outcome**: `azi-3-status-jobs` must 1) add `NO_TOILET_ACTIVITY_ALARM` to Megazord + `tiny-internal-services`, 2) seed a toilet status-check template/description so Micro-Manager scripts can reference it, 3) create/destroy a Megazord subscription at the configured daily time A, 4) maintain rolling two-hour windows (capped by B) by combining SQS pushes with `incoming_event` history, and 5) emit/log `NO_TOILET_ACTIVITY_ALARM` both in Event Service and `status_check_record`.
 - [ ] Define scope and edge cases
   - **Outcome**: Handle DST jumps, windows that cross midnight, robot offline periods, duplicate/out-of-order SQS deliveries, service restarts mid-window, updates to the A/B window without redeploys, ensuring alarms are only sent once per missed window, and guaranteeing subscription cleanup even if the worker crashes.
 
 ### Phase 2: Implementation (File/Code Structure)
+>
 > Describe the proposed file/directory structure, including the purpose of each key component. Remember use status markers like ✅ (Implemented), 🚧 (To-Do), 🔄 (In Progress).
 
 ```
@@ -66,12 +81,14 @@ azi-3-status-jobs/
 ```
 
 **Supporting repositories**
+
 - `megazord-events/schemas/gen.ts` & `megazord-events/schemas/events/no_toilet_activity_alarm.json` # 🚧 TODO - Add new event constant + generated schema.
 - `tiny-internal-services/lib/model/events/TinybotsEvent.ts` # 🚧 TODO - Export `NO_TOILET_ACTIVITY_ALARM` for sharing across services.
 - `devdocs/tinybots/megazord-events/OVERVIEW.md` & `devdocs/tinybots/sensara-adaptor/OVERVIEW.md` # 🚧 TODO - Mention the new alarm and its producer.
 - `typ-e/src/main/resources/db/migration` (new SQL) # 🚧 TODO - Seed `status_check_description` + template rows for the toilet-alarm script node.
 
 ### Phase 3: Detailed Implementation Steps
+
 1. **Extend Megazord + tiny-internal event vocabulary**
    - Add `NO_TOILET_ACTIVITY_ALARM` to `megazord-events/schemas/gen.ts`, regenerate JSON under `schemas/events/`, and bump fixtures/tests that read the schemas.
    - Mirror the constant in `tiny-internal-services/lib/model/events/TinybotsEvent.ts` so `azi-3-status-jobs` and scripts can use the same enum without string literals.
@@ -98,6 +115,7 @@ azi-3-status-jobs/
    - Recovery path: when (re)starting a worker or regaining DB locks, call `MegazordEventClient.getEvents(robotId, { eventName: 'TOILET_ACTIVITY', createdSince: poller.since })` to replay missed visits before relying on SQS.
 5. **Advance windows + emit alarms**
    - `ToiletActivityWindowService` logic:
+
      ```
      currentWindow = [poller.since, min(poller.since + 120 min, timeB)]
      if message.timestamp within window:
@@ -106,6 +124,7 @@ azi-3-status-jobs/
         poller.until = min(message.timestamp + 120 min, timeB)
         if poller.since >= timeB -> finalize success (set status_check.result='COMPLETED', delete poller, unsubscribe)
      ```
+
    - Cron-driven gap detection:
      - Every minute, select `status_check_poller` rows where `lock_id is null and until <= now` and transition them.
      - Emit alarm by calling `MegazordEventClient.postEvent(robotId, { providerName: 'azi-3-status-jobs', eventName: TinybotsEvent.NO_TOILET_ACTIVITY_ALARM, level: config.alarmLevel, referenceId: \`\${statusCheckId}-\${poller.since.toISOString()}\` })`.
@@ -122,6 +141,7 @@ azi-3-status-jobs/
 ## 📊 Summary of Results
 
 ### ✅ Completed Achievements
+
 - Consolidated the stakeholder request, constraints, and prior-art research into a single actionable design using the agent template.
 - Mapped every required code/data touch-point (Megazord schema, tiny-internal enum, Typ-E seed, new repo skeleton) for introducing `NO_TOILET_ACTIVITY_ALARM`.
 - Defined the monitoring algorithm (subscription lifecycle, window advancement, alarm emission, recovery, persistence) so implementation can start immediately.
@@ -129,14 +149,17 @@ azi-3-status-jobs/
 ## 🚧 Outstanding Issues & Follow-up
 
 ### ⚠️ Known Issues (Optional)
+
 - [ ] Need the exact pilot `robotId`/resident info, timezone, and daily start/end times (A/B) to populate config + template rows.
 - [ ] Confirm desired `level` and `hasTrigger` flags for `NO_TOILET_ACTIVITY_ALARM` so dashboards, triggers, and escalation rules behave correctly.
 - [ ] Agree on the set of `status_check.result` values (`SUCCESS`, `ALARM_RAISED`, etc.) expected by Micro-Manager when it resumes the script.
 
 ### 🔮 Future Improvements (Optional)
+
 - [ ] Generalize the monitoring config (e.g., store per-robot windows in DB) so additional residents can be onboarded without redeploying.
 - [ ] Surface alarms to dashboards/Slack and add Datadog metrics for faster experimentation feedback loops.
 
 ---
+
 **Last updated**: 2025-11-12
 ---
