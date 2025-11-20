@@ -24,6 +24,19 @@ Ban đầu nó sẽ được load từ `schemas/events` files, sync từ trong n
 
 Nó sẽ được reload liên tục trong `src/services/EventSchemasService.ts` dựa trên cronjob(cronjob sử dụng từ `tiny-backend-tool` repository) để cho vào cache mục đích để lấy cho nhanh
 
+#### Adding a new event schema
+
+1. Thêm event mới vào `schemas/gen.ts` (khai báo trong `TinybotsEvent` và thêm cấu hình riêng trong `CustomConfigs` nếu cần ghi đè `level`/`hasTrigger`).
+2. Chạy `yarn ts-node schemas/gen.ts` (ở thư mục repo) để regenerate toàn bộ file JSON trong `schemas/events`. Lệnh này đảm bảo file mới được tạo và các file cũ được sync đúng format; luôn chạy lại sau khi sửa `gen.ts`.
+
+Các file JSON được gen chỉ chứa đúng 5 trường:
+
+```
+eventName, level, hasTrigger, isActive, description
+```
+
+Không được nhét metadata hoặc application settings khác vào đây. Khi app start, `src/services/EventSchemasLoader.ts` đọc từng file JSON, tạo hoặc update bản ghi tương ứng trong bảng `event_schema`, rồi `EventSchemasService` cache toàn bộ để phục vụ `IncomingEventsService` validate/tự động fill thông tin event type trong runtime (ví dụ khi tạo incoming event mới hoặc filter theo `eventType`). Vì vậy, các file JSON chỉ đóng vai trò “seed” để app tham chiếu và sync schema vào DB/caches.
+
 ### provider
 
 - table `event_provider`

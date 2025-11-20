@@ -2,16 +2,6 @@
 >
 > TL;DR: Node/TypeScript service that lets Tinybots robots kick off “status check” script steps, persists and evaluates them against historical/future Megazord events using configurable templates, and pushes updates back over SQS.
 
-## Table of Contents
-
-- [Repo Purpose & Interactions](#repo-purpose--interactions)
-- [Controllers / Public Surface](#controllers--public-surface)
-- [Key Services, Repositories & Logic](#key-services-repositories--logic)
-- [Data & Domain Model](#data--domain-model)
-- [External Dependencies & Cross-Service Contracts](#external-dependencies--cross-service-contracts)
-- [Testing & Tooling](#testing--tooling)
-- [Gaps & Risks](#gaps--risks)
-
 ## Repo Purpose & Interactions
 
 azi-3-status-check is the backend that owns “status checks” for robots. Robots call the HTTP API to start a check when they reach a `statusCheck` Micro Managers step. The service looks up the script definition, finds a matching YAML template, loads prior Megazord events to evaluate “past” conditions, subscribes to “future” events over Megazord, and eventually notifies the robot (through an SQS queue) which next script step to execute. The project is a Yarn 3 workspace with TypeScript, Express, Awilix DI, Tiny Backend Tools utilities, and generated template modules.

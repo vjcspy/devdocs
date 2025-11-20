@@ -1,6 +1,13 @@
 # 📋 [TICKET-ID: YYYY-MM-DD] - [Task/Ticket Name]
 
+
+
+## References
+
+> Any source or file you reference must adhere to the following rule: If it is a file, the path must be cited exactly as provided by the user to ensure seamless accessibility for other AI Agents.
+
 ## User Requirements
+
 > This section contains the original requirements from the user. If the user defined them, leave them as they are; otherwise, you can omit this section.
 
 ## 🎯 Objective
