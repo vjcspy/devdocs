@@ -94,7 +94,9 @@ azi-3-status-jobs/
 │   └── production.json                      # 🚧 TODO - Production overrides
 ├── src/
 │   ├── cmd/
-│   │   └── main.ts                          # 🚧 TODO - Bootstrap Express app + background jobs
+│   │   └── main.ts                          # 🚧 TODO - Bootstrap TinyAppUnauthenticated + Awilix
+│   ├── constants/
+│   │   └── index.ts                         # 🚧 TODO - ContainerNames for Awilix DI
 │   ├── config/
 │   │   ├── index.ts                         # 🚧 TODO - Config loader + JSON env var parser
 │   │   └── types.ts                         # 🚧 TODO - TypeScript config interfaces
@@ -207,18 +209,27 @@ devdocs/tinybots/
 
 **2.1 Initialize repository structure**
 
-- **Base architecture**: Lightweight Express app (no TinyDatabaseApp - no DB needed)
+- **Base architecture**: `TinyAppUnauthenticated` from `tiny-backend-tools` (no authentication needed)
 - **Dependencies**:
 
   ```json
   {
     "dependencies": {
+      "tiny-backend-tools": "workspace:*",
       "tiny-internal-services": "workspace:*",
+      "awilix": "^8.0.0",
+      "config": "^3.3.9",
       "express": "^4.18.2",
       "luxon": "^3.4.0",
       "zod": "^3.22.0",
       "@aws-sdk/client-sqs": "^3.400.0",
-      "node-cron": "^3.0.2"
+      "winston": "^3.11.0",
+      "reflect-metadata": "^0.1.13"
+    },
+    "devDependencies": {
+      "@types/luxon": "^3.3.0",
+      "@types/node": "^20.0.0",
+      "typescript": "^5.0.0"
     }
   }
   ```
@@ -264,22 +275,207 @@ devdocs/tinybots/
 **2.3 Bootstrap application**
 
 - **File**: `src/cmd/main.ts`
-- **Pattern**:
+- **Pattern** (following `wonkers-taas-order-activation` and `m-o-triggers` structure):
 
   ```typescript
-  import express from 'express';
-  import { parseConfig } from '../config';
-  import { initializeServices } from '../services';
-  import { startJobs } from '../jobs';
+  import 'reflect-metadata';
+  import { asClass, asValue, asFunction } from 'awilix';
+  import { randomUUID } from 'node:crypto';
+  import {
+    TinyAppUnauthenticated,
+    loadConfigValue,
+    LogConfig,
+    contextMiddleware,
+    contextLoggerMiddleware,
+    errorMiddleware,
+    serializerMiddleware,
+    Modules,
+    Cron,
+    IRequestContext,
+    SQS
+  } from 'tiny-backend-tools';
+  import winston from 'winston';
+  import { EventService } from 'tiny-internal-services';
+  
+  import { AppConfig, MonitoringConfig, SQSConfig } from '../config';
+  import { ContainerNames } from '../constants';
+  import { WindowTracker } from '../services/WindowTracker';
+  import { MonitoringScheduler } from '../services/MonitoringScheduler';
+  import { AlarmEmitter } from '../services/AlarmEmitter';
+  import { MegazordEventClient } from '../infrastructure/MegazordEventClient';
+  import { MonitorWorker } from '../jobs/MonitorWorker';
+  import { WindowExpirationChecker } from '../jobs/WindowExpirationChecker';
+  import { SessionCleanupJob } from '../jobs/SessionCleanupJob';
 
-  const app = express();
-  const config = parseConfig(process.env.TOILET_MONITORING_CONFIG);
+  export class App extends TinyAppUnauthenticated {
+    private logger!: Cron.ExtendableLogger;
+    private ctx: IRequestContext;
+    private asyncContainer: Modules.AwilixWrapper<any>;
+    private isStopping: boolean = false;
 
-  const services = initializeServices(config);
-  startJobs(services);
+    constructor(
+      private readonly logConfig: LogConfig,
+      private readonly appConfig: AppConfig,
+      private readonly monitoringConfig: MonitoringConfig,
+      private readonly sqsConfig: SQS.ISQSConfig
+    ) {
+      super();
+      
+      this.setDefaultLogger();
+      this.ctx = Cron.newCronContext(this.logger, appConfig.appName);
+      this.asyncContainer = new Modules.AwilixWrapper(this.container);
+      
+      this.extendContainer();
+      this.setMiddlewares();
+      this.setEndpoints();
+    }
 
-  app.get('/health', (req, res) => res.json({ status: 'ok' }));
-  app.listen(config.port || 3000);
+    private setDefaultLogger(): void {
+      const format = this.appConfig.isLocal
+        ? winston.format.combine(
+            winston.format.timestamp(),
+            winston.format.splat(),
+            winston.format.json(),
+            winston.format.prettyPrint({ colorize: true })
+          )
+        : winston.format.combine(
+            winston.format.timestamp(),
+            winston.format.splat(),
+            winston.format.json()
+          );
+
+      const winstonLogger = winston.createLogger({
+        level: this.logConfig.level,
+        format,
+        transports: [new winston.transports.Console()],
+        defaultMeta: { _appName: this.appConfig.appName }
+      });
+
+      this.logger = winstonLogger as unknown as Cron.ExtendableLogger;
+    }
+
+    private extendContainer(): void {
+      // Register configs
+      this.asyncContainer.register(ContainerNames.CONFIG_APP, asValue(this.appConfig));
+      this.asyncContainer.register(ContainerNames.CONFIG_MONITORING, asValue(this.monitoringConfig));
+      this.asyncContainer.register(ContainerNames.CONFIG_SQS, asValue(this.sqsConfig));
+      this.asyncContainer.register('logger', asValue(this.logger));
+      
+      // Register infrastructure
+      this.asyncContainer.register(
+        ContainerNames.CLIENT_MEGAZORD,
+        asClass(MegazordEventClient).singleton()
+      );
+      
+      this.asyncContainer.register(
+        ContainerNames.SQS_CONSUMER,
+        asClass(SQS.ContextSQS).singleton()
+      );
+      
+      // Register core services (repository pattern for persistence)
+      this.asyncContainer.register(
+        ContainerNames.SERVICE_WINDOW_TRACKER,
+        asClass(WindowTracker).singleton()
+      );
+      
+      this.asyncContainer.register(
+        ContainerNames.SERVICE_ALARM_EMITTER,
+        asClass(AlarmEmitter).singleton()
+      );
+      
+      this.asyncContainer.register(
+        ContainerNames.SERVICE_SCHEDULER,
+        asClass(MonitoringScheduler).singleton()
+      );
+      
+      // Register background jobs
+      this.asyncContainer.register(
+        ContainerNames.JOB_MONITOR_WORKER,
+        asClass(MonitorWorker).singleton()
+      );
+      
+      this.asyncContainer.register(
+        ContainerNames.JOB_WINDOW_CHECKER,
+        asClass(WindowExpirationChecker).singleton()
+      );
+      
+      this.asyncContainer.register(
+        ContainerNames.JOB_SESSION_CLEANUP,
+        asClass(SessionCleanupJob).singleton()
+      );
+    }
+
+    private setMiddlewares(): void {
+      this.app.use(contextMiddleware(randomUUID));
+      this.app.use(contextLoggerMiddleware(this.logger));
+      this.app.use(serializerMiddleware);
+    }
+
+    private setEndpoints(): void {
+      // Health endpoint with session stats
+      this.app.get('/health', (req, res) => {
+        const tracker = this.container.resolve<WindowTracker>(ContainerNames.SERVICE_WINDOW_TRACKER);
+        res.json({
+          status: 'ok',
+          ...tracker.getStats()
+        });
+      });
+      
+      // Debug endpoint for active sessions (remove in production)
+      this.app.get('/internal/v1/monitoring/sessions', (req, res) => {
+        const tracker = this.container.resolve<WindowTracker>(ContainerNames.SERVICE_WINDOW_TRACKER);
+        res.json(tracker.getDebugInfo());
+      });
+      
+      this.app.use(errorMiddleware);
+    }
+
+    public async start(): Promise<void> {
+      // Initialize all async modules (SQS, jobs, etc.)
+      await this.asyncContainer.init(this.ctx);
+      
+      await new Promise<void>(resolve => {
+        this.serverInstance = this.app.listen(
+          this.appConfig.port,
+          '0.0.0.0',
+          () => {
+            this.logger.info('Server started on port %d', this.appConfig.port);
+            resolve();
+          }
+        );
+
+        this.serverInstance.keepAliveTimeout = 61 * 1000;
+        this.serverInstance.headersTimeout = 65 * 1000;
+      });
+    }
+
+    public async stop(): Promise<void> {
+      this.isStopping = true;
+      await this.asyncContainer.stop(this.ctx);
+      await super.stop();
+    }
+  }
+
+  export const createApp = async (): Promise<App> => {
+    const logConfig = await loadConfigValue('log', LogConfig);
+    const appConfig = await loadConfigValue('app', AppConfig);
+    const monitoringConfig = await loadConfigValue('monitoring', MonitoringConfig);
+    const sqsConfig = await loadConfigValue('sqsConfig', SQSConfig);
+
+    return new App(logConfig, appConfig, monitoringConfig, sqsConfig);
+  };
+
+  // Entry point
+  (async () => {
+    const app = await createApp();
+    await app.start();
+    
+    process.on('SIGTERM', async () => {
+      console.log('SIGTERM received, shutting down gracefully...');
+      await app.stop();
+      process.exit(0);
+    });
+  })();
   ```
 
 #### Step 3: Implement Core Infrastructure
@@ -462,44 +658,50 @@ devdocs/tinybots/
   ```typescript
   class WindowTracker {
     private sessions: Map<string, MonitoringSession> = new Map(); // sessionId -> session
-    private robotSessions: Map<number, Set<string>> = new Map(); // robotId -> sessionIds
+    private robotSessions: Map<number, string> = new Map(); // robotId -> sessionId (single active session per robot)
     private subscriptionIndex: Map<number, string> = new Map(); // subscriptionId -> sessionId
     
-    // Multi-robot session creation
+    // Create a session for a robot. If the robot already has an active session, return it instead of creating a new one.
     createSession(robotId: number, start: DateTime, end: DateTime): MonitoringSession {
+      const existingSessionId = this.robotSessions.get(robotId);
+      if (existingSessionId) {
+        const existing = this.sessions.get(existingSessionId);
+        if (existing && existing.status === 'ACTIVE') {
+          this.logger.warn('Active session already exists for robot, returning existing session', { robotId, sessionId: existing.id });
+          return existing;
+        }
+      }
+
       const session = new MonitoringSession(uuid(), robotId, start, end);
       this.sessions.set(session.id, session);
-      
-      // Index by robot
-      if (!this.robotSessions.has(robotId)) {
-        this.robotSessions.set(robotId, new Set());
-      }
-      this.robotSessions.get(robotId)!.add(session.id);
-      
+
+      // Index by robot (one active session per robot)
+      this.robotSessions.set(robotId, session.id);
+
       this.logger.info('Session created', { sessionId: session.id, robotId });
       return session;
     }
-    
+
     indexSubscription(sessionId: string, subscriptionId: number) {
       this.subscriptionIndex.set(subscriptionId, sessionId);
     }
-    
+
     handleActivity(subscriptionId: number, eventTime: DateTime, eventId: string, duration: number) {
       const sessionId = this.subscriptionIndex.get(subscriptionId);
       if (!sessionId) {
         this.logger.warn('No session found for subscription', { subscriptionId });
         return;
       }
-      
+
       const session = this.sessions.get(sessionId);
       if (!session) return;
-      
+
       // Deduplicate
       if (session.currentWindow.eventsReceived.has(eventId)) {
         this.logger.debug('Duplicate event ignored', { eventId });
         return;
       }
-      
+
       // Check if event is in current window
       if (!session.currentWindow.contains(eventTime)) {
         this.logger.warn('Event outside window', { 
@@ -509,62 +711,68 @@ devdocs/tinybots/
         });
         return;
       }
-      
+
       // Record event
       session.currentWindow.eventsReceived.add(eventId);
       session.updatedAt = DateTime.now();
-      
+
       // Reset window
       session.currentWindow = session.currentWindow.resetFrom(
         eventTime,
         session.endTime,
         duration
       );
-      
+
       this.logger.info('Window reset', { 
         sessionId: session.id, 
         robotId: session.robotId,
         newWindowUntil: session.currentWindow.until.toISO() 
       });
-      
+
       // Check if monitoring complete
       if (session.currentWindow.until >= session.endTime) {
         this.completeSession(session.id, 'SUCCESS');
       }
     }
-    
+
     getExpiredWindows(now: DateTime): MonitoringSession[] {
       return Array.from(this.sessions.values()).filter(session =>
         session.status === 'ACTIVE' && session.currentWindow.isExpired(now)
       );
     }
-    
-    getActiveSessionsForRobot(robotId: number): MonitoringSession[] {
-      const sessionIds = this.robotSessions.get(robotId) || new Set();
-      return Array.from(sessionIds)
-        .map(id => this.sessions.get(id))
-        .filter(s => s && s.status === 'ACTIVE') as MonitoringSession[];
+
+    // Return the single active session for a robot, or null
+    getActiveSessionForRobot(robotId: number): MonitoringSession | null {
+      const sessionId = this.robotSessions.get(robotId);
+      if (!sessionId) return null;
+      const session = this.sessions.get(sessionId) || null;
+      if (session && session.status === 'ACTIVE') return session;
+      return null;
     }
-    
+
     completeSession(sessionId: string, reason: string) {
       const session = this.sessions.get(sessionId);
       if (session) {
         session.status = 'COMPLETED';
         session.updatedAt = DateTime.now();
-        
+
         this.logger.info('Session completed', { sessionId, robotId: session.robotId, reason });
-        
+
         // Keep in memory for grace period, then remove
         setTimeout(() => {
           this.sessions.delete(sessionId);
-          this.robotSessions.get(session.robotId)?.delete(sessionId);
+          // Remove robot->session mapping if it points to this session
+          const mapped = this.robotSessions.get(session.robotId);
+          if (mapped === sessionId) {
+            this.robotSessions.delete(session.robotId);
+          }
           if (session.subscriptionId) {
             this.subscriptionIndex.delete(session.subscriptionId);
           }
         }, 60000);
       }
     }
-    
+
     // Future persistence support
     async flush(): Promise<void> {
       // TODO: Implement database persistence
@@ -579,7 +787,7 @@ devdocs/tinybots/
       // const serialized = Array.from(this.sessions.values()).map(s => s.toJSON());
       // await this.repository.bulkUpsert(serialized);
     }
-    
+
     async restore(): Promise<void> {
       // TODO: Implement database restoration on startup
       // Load active sessions from database
@@ -587,7 +795,7 @@ devdocs/tinybots/
       // Rebuild indexes (robotSessions, subscriptionIndex)
       this.logger.info('Restore called - not yet implemented');
     }
-    
+
     // Debugging/monitoring
     getStats() {
       return {
@@ -602,7 +810,7 @@ devdocs/tinybots/
 
 #### Step 5: Implement Monitoring Services
 
-**5.1 MonitoringScheduler**
+#### 5.1 MonitoringScheduler
 
 - **File**: `src/services/MonitoringScheduler.ts`
 - **Trigger**: Cron at midnight (per-timezone) + at Time A for **each robot**
@@ -664,6 +872,16 @@ devdocs/tinybots/
       end: DateTime,
       clock: Clock
     ) {
+      // Check if robot already has an active session
+      const existingSession = this.windowTracker.getActiveSessionForRobot(robotConfig.robotId);
+      if (existingSession) {
+        this.logger.warn('Robot already has active session, skipping initialization', {
+          robotId: robotConfig.robotId,
+          existingSessionId: existingSession.id
+        });
+        return;
+      }
+
       const session = this.windowTracker.createSession(
         robotConfig.robotId,
         start,
@@ -717,7 +935,7 @@ devdocs/tinybots/
   }
   ```
 
-**5.2 AlarmEmitter**
+#### 5.2 AlarmEmitter
 
 - **File**: `src/services/AlarmEmitter.ts`
 - **Purpose**: Posts alarm to Megazord (no DB side effects)
@@ -763,85 +981,179 @@ devdocs/tinybots/
 
 #### Step 6: Implement Background Jobs
 
-**6.1 MonitorWorker (SQS Consumer)**
+##### 6.1 MonitorWorker (SQS Consumer)
 
 - **File**: `src/jobs/MonitorWorker.ts`
 - **Purpose**: Main loop consuming SQS messages
+- **Design**: Implements `IAsyncModule` for Awilix lifecycle management
 - **Pattern**:
 
   ```typescript
-  class MonitorWorker {
-    async start() {
-      this.logger.info('Starting monitor worker');
+  import { Modules, SQS, IRequestContext } from 'tiny-backend-tools';
+  import { WindowTracker } from '../services/WindowTracker';
+  import { MonitoringConfig } from '../config';
+  import { DateTime } from 'luxon';
+
+  export class MonitorWorker implements Modules.IAsyncModule {
+    private running: boolean = false;
+    private pollingPromise: Promise<void> | null = null;
+
+    constructor(
+      private readonly sqsConsumer: SQS.ContextSQS,
+      private readonly windowTracker: WindowTracker,
+      private readonly config: MonitoringConfig,
+      private readonly logger: any
+    ) {}
+
+    async init(ctx: IRequestContext): Promise<void> {
+      this.running = true;
+      this.logger.info('Starting MonitorWorker');
       
-      for await (const { message, ack } of this.consumer.consumeMessages()) {
-        try {
-          await this.processMessage(message);
-          await ack();
-        } catch (error) {
-          this.logger.error('Failed to process message', { error, message });
-          // Leave message in queue for retry
-        }
+      // Start polling in background
+      this.pollingPromise = this.pollMessages(ctx);
+    }
+
+    async stop(ctx: IRequestContext): Promise<void> {
+      this.running = false;
+      this.logger.info('Stopping MonitorWorker');
+      
+      if (this.pollingPromise) {
+        await this.pollingPromise;
       }
     }
-    
-    private async processMessage(msg: StatusQueueMessage) {
+
+    private async pollMessages(ctx: IRequestContext): Promise<void> {
+      try {
+        for await (const msg of this.sqsConsumer.poll(ctx)) {
+          if (!this.running) break;
+
+          try {
+            await this.processMessage(msg.message);
+            await msg.ack();
+          } catch (error) {
+            this.logger.error('Failed to process message', { error, message: msg.message });
+            // Let message return to queue for retry
+          }
+        }
+      } catch (error) {
+        this.logger.error('SQS polling error', { error });
+      }
+    }
+
+    private async processMessage(msg: any): Promise<void> {
+      // Filter by event name
+      if (msg.sourceEvent?.eventName !== 'TOILET_ACTIVITY') {
+        return;
+      }
+
+      // Filter by monitored robots
+      const monitoredRobotIds = new Set(this.config.robots.map(r => r.robotId));
+      if (!monitoredRobotIds.has(msg.sourceEvent?.robotId)) {
+        return;
+      }
+
       const eventTime = DateTime.fromISO(msg.sourceEvent.createdAt);
       const robotId = msg.sourceEvent.robotId;
-      
-      // Get robot-specific config for window duration
-      const robotConfig = this.config.robots.find(r => r.robotId === robotId);
-      const duration = this.config.windowDurationMinutes;
       
       this.windowTracker.handleActivity(
         msg.subscriptionId,
         eventTime,
         msg.sourceEvent.id,
-        duration
+        this.config.windowDurationMinutes
       );
     }
   }
   ```
 
-**6.2 WindowExpirationChecker (Cron)**
+##### 6.2 WindowExpirationChecker (Cron)
 
 - **File**: `src/jobs/WindowExpirationChecker.ts`
-- **Trigger**: Every minute
+- **Trigger**: Every minute using `ContextCronJob`
+- **Design**: Implements `IAsyncModule` with cron scheduling
 - **Logic**:
 
   ```typescript
-  class WindowExpirationChecker {
-    async checkExpiredWindows() {
-      const now = this.clock.now();
+  import { Modules, Cron, IRequestContext } from 'tiny-backend-tools';
+  import { WindowTracker } from '../services/WindowTracker';
+  import { AlarmEmitter } from '../services/AlarmEmitter';
+  import { SubscriptionManager } from '../infrastructure/SubscriptionManager';
+  import { DateTime } from 'luxon';
+
+  export class WindowExpirationChecker implements Modules.IAsyncModule {
+    private cronJob: Cron.ContextCronJob | null = null;
+
+    constructor(
+      private readonly windowTracker: WindowTracker,
+      private readonly alarmEmitter: AlarmEmitter,
+      private readonly subscriptionManager: SubscriptionManager,
+      private readonly logger: any
+    ) {}
+
+    async init(ctx: IRequestContext): Promise<void> {
+      this.logger.info('Starting WindowExpirationChecker');
+      
+      // Run every minute
+      this.cronJob = new Cron.ContextCronJob(
+        '* * * * *',
+        async (cronCtx) => {
+          await this.checkExpiredWindows(cronCtx);
+        },
+        ctx,
+        this.logger
+      );
+      
+      this.cronJob.start();
+    }
+
+    async stop(ctx: IRequestContext): Promise<void> {
+      this.logger.info('Stopping WindowExpirationChecker');
+      if (this.cronJob) {
+        this.cronJob.stop();
+      }
+    }
+
+    private async checkExpiredWindows(ctx: IRequestContext): Promise<void> {
+      const now = DateTime.now();
       const expiredSessions = this.windowTracker.getExpiredWindows(now);
       
       for (const session of expiredSessions) {
-        // Emit alarm
-        await this.alarmEmitter.emitAlarm(session);
-        
-        // Reset window from now
-        session.currentWindow = new MonitoringWindow(
-          now,
-          DateTime.min(now.plus({ minutes: 120 }), session.endTime),
-          session.currentWindow.windowNumber + 1,
-          new Set()
-        );
-        
-        // Check if monitoring complete (reached time B)
-        if (now >= session.endTime) {
-          this.windowTracker.completeSession(session.id, 'ALARM_DAY_COMPLETE');
+        try {
+          // Emit alarm
+          await this.alarmEmitter.emitAlarm(session);
           
-          // Clean up subscription
-          if (session.subscriptionId) {
-            await this.subscriptionManager.deleteSubscription(session.subscriptionId);
+          // Reset window from now
+          const newWindow = session.currentWindow.createNextWindow(
+            now,
+            session.endTime,
+            this.config.windowDurationMinutes
+          );
+          
+          session.currentWindow = newWindow;
+          session.currentWindow.alarmsEmitted++;
+          session.updatedAt = DateTime.now();
+          
+          // Check if monitoring complete (reached time B)
+          if (now >= session.endTime) {
+            this.windowTracker.completeSession(session.id, 'ALARM_DAY_COMPLETE');
+            
+            // Clean up subscription
+            if (session.subscriptionId) {
+              await this.subscriptionManager.deleteSubscription(session.subscriptionId);
+            }
           }
+        } catch (error) {
+          this.logger.error('Failed to process expired window', { 
+            sessionId: session.id,
+            robotId: session.robotId,
+            error 
+          });
         }
       }
     }
   }
   ```
 
-**6.3 SessionCleanupJob (Cron)**
+##### 6.3 SessionCleanupJob (Cron)
 
 - **File**: `src/jobs/SessionCleanupJob.ts`
 - **Trigger**: Every hour
@@ -868,14 +1180,17 @@ devdocs/tinybots/
 
 #### Step 7: Testing Strategy
 
-**7.1 Unit Tests**
+#### 7.1 Unit Tests
 
-- `WindowTracker.test.ts`: Window math, DST handling, edge cases, in-memory state
+- `WindowTracker.test.ts`:
+  - Window math, DST handling, edge cases, in-memory state
+  - **Single session per robot**: Attempting to create a second session for the same `robotId` during an active window should return the existing session (not create a duplicate)
+  - **Session recreation after completion**: After a session is completed, a new session can be created for the same `robotId`
 - `AlarmEmitter.test.ts`: Deduplication logic, payload construction
 - `Clock.test.ts`: Timezone conversions, DST transitions
 - `MonitoringWindow.test.ts`: Window reset logic, expiration checks
 
-**7.2 Integration Tests**
+#### 7.2 Integration Tests
 
 - Mock Megazord EventService using `tiny-internal-services-mocks`
 - Mock SQS using in-memory queue
@@ -886,7 +1201,7 @@ devdocs/tinybots/
   - Out-of-order events
   - Duplicate events
 
-**7.3 Manual Validation Playbook**
+#### 7.3 Manual Validation Playbook
 
 1. Set `TOILET_MONITORING_CONFIG` env var
 2. Start service
@@ -898,13 +1213,13 @@ devdocs/tinybots/
 
 #### Step 8: Observability & Operations
 
-**8.1 Structured Logging**
+##### 8.1 Structured Logging
 
 - All log entries include: `robotId`, `sessionId`, `windowSince`, `windowUntil`
 - Key events: session created, subscription created, window reset, alarm emitted, session completed
 - Use structured JSON logging
 
-**8.2 Metrics (Optional - if metrics library available)**
+##### 8.2 Metrics (Optional - if metrics library available)
 
 - `azi3.toilet.session.created`: Daily session creation
 - `azi3.toilet.activity.received`: TOILET_ACTIVITY events processed
@@ -912,12 +1227,16 @@ devdocs/tinybots/
 - `azi3.toilet.alarm.sent`: Alarms emitted
 - `azi3.toilet.session.completed`: Successful monitoring days
 
-**8.3 Health Checks**
+  ```text
+  (metrics placeholder)
+  ```
+
+##### 8.3 Health Checks
 
 - `GET /health`: Basic liveness + active session count
 - `GET /health/sessions`: List active sessions (for debugging)
 
-**8.4 Deployment**
+##### 8.4 Deployment
 
 - Dockerfile: Multi-stage build
 - CI/CD: Lint → Test → Build → Deploy
@@ -926,17 +1245,20 @@ devdocs/tinybots/
 
 #### Step 9: Documentation
 
-**9.1 Service Overview**
+##### 9.1 Service Overview
 
 - **File**: `devdocs/tinybots/azi-3-status-jobs/OVERVIEW.md`
-- **Sections**: 
+- **Sections**:
   - Purpose (stateless toilet activity monitoring)
   - Architecture (in-memory state, no database)
   - Configuration (JSON env var format)
   - Restart behavior (lose state, recreate sessions)
   - Scaling limitations (single instance or Redis)
 
-**9.2 Update Related Docs**
+  - Restart semantics
+  - Example configuration
+
+##### 9.2 Update Related Docs
 
 - `devdocs/tinybots/megazord-events/OVERVIEW.md`: Mention new alarm
 - `devdocs/tinybots/OVERVIEW.md`: Add azi-3-status-jobs to service catalog
