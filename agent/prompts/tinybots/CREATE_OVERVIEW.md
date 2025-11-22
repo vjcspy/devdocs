@@ -1,59 +1,78 @@
-# Node.js Repository Onboarding Generator
+# Node.js Repository Onboarding Generator & Lifecycle Manager
 
 ## 1. Role & Objective
 
-Act as a **Senior Backend Node.js Engineer and Technical Writer**. Your goal is to reverse-engineer the provided Node.js repository and generate a **"State of the Repo" Onboarding Document**. This document must allow a new AI agent or developer to immediately understand the architecture, data flow, and contribution guidelines.
+Act as a **Senior Backend Node.js Engineer and Technical Writer**. Your goal is to manage the **"State of the Repo" Onboarding Document**. You must ensure this document is accurate, fresh, and correctly placed.
 
-## 2. Phase 0: Critical Environment Validation (Git Check)
+**Deliverable Path:** `devdocs/tinybots/[REPO_NAME]/OVERVIEW.md`
+*(Note: Extract [REPO_NAME] from the current root directory name)*
 
-**You must perform this step FIRST. Do not proceed to analysis until this passes.**
+## 2. Phase 0: Critical Environment Validation
 
-1. **Check Branch:** Execute a git command to verify the current branch.
-   - *Command logic:* Check if current branch is `develop` (You must check repository branch, not root folder)
+**Action:** Verify the execution environment before touching any code.
+
+1. **Check Branch:** Execute `git branch --show-current`. (REMEMBER: YOU MUST CHECK CURRENT BRANCH IN REPOSITORY FOLDER, NOT ROOT FOLDER)
 2. **STOPPING CONDITION:**
-   - **IF** the branch is **NOT** `develop`: **STOP IMMEDIATELY**. Output a warning message: *"⚠️ Aborted: Repository must be on 'develop' branch to generate an official Overview. Current branch is [Branch Name]."*
-   - **IF** the branch **IS** `develop`: Proceed to step 3.
-3. **Capture Metadata:**
-   - Retrieve the last commit hash and date (e.g., `git log -1 --format="%h - %cd"`).
-   - **Requirement:** This information must be displayed at the very top of the final output to certify "Freshness".
+    - **IF** branch is **NOT** `develop` or `master`: **STOP IMMEDIATELY**. Output: *"⚠️ Aborted: Documentation can only be generated from 'develop'. Current: [Branch Name]."*
+    - **IF** branch **IS** `develop` or `master`: Proceed to Phase 1.
 
-## 3. Phase 1: Codebase Analysis (Deep Scan)
+## 3. Phase 1: Documentation Lifecycle & Freshness Check
 
-*Scan only `src`, `test` to extract the following:*
+**Action:** Determine if we are creating specific new documentation or updating existing one.
 
-- **Inventory:** Create a structural tree of key files/folders and define their purpose.
+1. **Capture Current State:**
+    - Get current commit: `git log -1 --format="%h"`.
+    - Get current date: `git log -1 --format="%cd"`.
+2. **Check File Existence:** Check if `devdocs/tinybots/[REPO_NAME]/OVERVIEW.md` exists.
+
+### Scenario A: File Does NOT Exist
+
+- **Status:** **[NEW GENERATION]**
+- **Action:** Proceed directly to **Phase 2** to perform a full repository scan.
+
+### Scenario B: File EXISTS
+
+- **Action:** Read the content of the existing `OVERVIEW.md`.
+- **Parse Metadata:** Extract the `Last Commit: [Hash]` value from the existing file header.
+- **Compare:**
+- **IF** `[Existing Hash] == [Current Hash]`: **STOP**. Output: *"✅ Documentation is up to date. No changes detected."*
+- **IF** `[Existing Hash] != [Current Hash]`: **Status:** **[UPDATE REQUIRED]**
+  - **Delta Analysis:** Execute `git diff --name-only [Existing Hash] HEAD`.
+  - **Instruction:** Analyze the list of changed files. Keep this "Diff Context" in mind during Phase 2. You must explicitly highlight how these recent changes impact the architecture in the final output.
+
+## 4. Phase 2: Codebase Analysis (Deep Scan)
+
+*Perform the scan based on the Status determined in Phase 1.*
+
+- **Inventory:** Create/Verify structural tree of key files.
 - **Controllers & API Surface:**
-  - Identify exposed routes, HTTP methods, and schemas.
-  - Extract core middleware (Guards, Auth), and key dependencies.
+- Identify exposed routes, methods, schemas.
+- **For Update Status:** specifically check if the `git diff` indicates changes in parameters, paths, or new endpoints.
 - **Domain Logic (Services/Repos):**
-  - Map main functions, inputs/outputs, and side effects (DB, Cache, Queue, HTTP).
-  - Identify idempotency logic, retry policies, and error handling patterns.
+- Map functions, side effects, and error handling.
+- **For Update Status:** If service files changed, re-verify business logic flow.
 - **Testing Strategy:**
-  - Deep dive into `test/`, prioritizing integration tests (`*IT`).
-  - Extract workflows covered, fixtures used, and the definition of "Green" (what constitutes a success).
+- Analyze `test/` coverage. Check if new tests were added for the recent commits.
 - **Integration Map:**
-  - Infer domain entities and relations.
-  - Map **all** external systems (DBs, Brokers, 3rd Party APIs, Internal Services). Note protocols, auth methods, and timeouts.
+- Infer entities and external systems.
 
-## 4. Phase 2: Synthesis & Insight
+## 5. Phase 3: Synthesis & Output Assembly
 
-- **Purpose:** Define the repo's bounded context and primary mission.
-- **Gap Analysis:** Identify TODOs, missing tests, dead code, potential security risks (secrets), or ambiguous ownership.
+*Generate (or Overwrite) the single Markdown file at the target path. **Constraint: DO NOT use tables. Use Hierarchical Headings (H2, H3, H4).***
 
-## 5. Phase 3: Output Assembly (The Deliverable)
+### Content Structure
 
-*Generate a single Markdown file using the exact structure below. **Constraint: DO NOT use tables. Use Hierarchical Headings (H2, H3, H4) for all data representation.***
-
-### Structure
-
-1. **Metadata Header:**
-   - `> **Branch:** develop`
-   - `> **Last Commit:** [Hash] on [Date]`
+1. **Metadata Header (CRITICAL):**
+    - `> **Branch:** develop`
+    - `> **Last Commit:** [Current Hash] (Updated from [Old Hash] if applicable)`
+    - `> **Last Updated:** [Current Date]`
 2. **Title & TL;DR:** Concise summary.
-3. **Repo Purpose & Bounded Context:** High-level architectural role.
-4. **Project Structure:** The inventory tree.
-5. **Controllers & Public Surface:** (Group by functionality).
-6. **Core Services & Logic:** (Detail the "How").
-7. **External Dependencies & Cross-Service Contracts:**
-   - *Crucial:* Explicitly list all external connections found in source code.
-8. **Testing & Quality Gates:** Analysis of the `test` folder.
+3. **Recent Changes Log (Only if Updating):**
+    - Briefly explain what changed structurally since the last documentation version based on the `git diff` analysis.
+4. **Repo Purpose & Bounded Context:** High-level architectural role.
+5. **Project Structure:** The inventory tree.
+6. **Controllers & Public Surface:** (Group by functionality).
+7. **Core Services & Logic:** (Detail the "How").
+8. **External Dependencies & Cross-Service Contracts:**
+    - *Crucial:* Explicitly list all external connections found in source code.
+9. **Testing & Quality Gates:** Analysis of the `test` folder.

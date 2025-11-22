@@ -1,7 +1,8 @@
-# 📋 [PROD594: 2025-11-20] - Toilet Activity Monitoring Service (azi-3-status-jobs)
+# 📋 [PROD594: 2025-11-20] - Toilet Activity Monitoring Service (azi-3-status-check-jobs)
 
-**Status**: ✅ Implementation Complete (Core Logic) | 🧪 Ready for Testing  
-**Last Updated**: 2025-11-20  
+**Status**: ✅ Implementation Complete (Core Logic + Config Refactoring) | 🧪 Ready for Testing  
+**Repository**: `azi-3-status-check-jobs` (renamed from azi-3-status-jobs)  
+**Last Updated**: 2025-11-22  
 **Build Status**: ✅ TypeScript Compilation Successful  
 **Next Phase**: Unit Tests & Integration Testing
 
@@ -25,7 +26,11 @@ What you need:
 
 ## 🎯 Objective
 
-Build a new standalone, **stateless** service `azi-3-status-jobs` that monitors toilet activity for specific residents in configurable time windows, emitting alarms when 2-hour activity gaps are detected. This service operates completely in-memory without any database dependencies.
+Build a new standalone, **stateless** service `azi-3-status-check-jobs` that monitors toilet activity for specific residents in configurable time windows, emitting alarms when 2-hour activity gaps are detected. This service operates completely in-memory without any database dependencies.
+
+**Repository Naming**: Renamed from `azi-3-status-jobs` to `azi-3-status-check-jobs` to align with existing `azi-3-status-check` service family.
+
+**Configuration Strategy**: Uses `loadConfigValue` pattern from tiny-backend-tools with config structure aligned to `azi-3-status-check` for consistency across services.
 
 ### ⚠️ Key Considerations
 
@@ -36,11 +41,13 @@ Build a new standalone, **stateless** service `azi-3-status-jobs` that monitors 
 - **Stateless design** for time-based monitoring using only in-memory tracking
 - **Easier experimentation** and iteration without data persistence concerns
 - **Minimal infrastructure** (just SQS + Megazord Event Service)
+- **Config consistency**: Aligned with `azi-3-status-check` naming conventions for easier operations
 
 **Critical Requirements**:
 
 - **NO DATABASE**: Service runs entirely stateless with in-memory state tracking
-- **Environment-based config**: All settings (robot, timezone, time windows) via single JSON env var
+- **Environment-based config**: Uses `loadConfigValue` pattern matching other TinyBots services
+- **Config structure**: Follows `azi-3-status-check` conventions (log, app, sqsConfig, megazordEvents, statusQueue)
 - SQS delivery is at-least-once; must deduplicate and handle out-of-order events in memory
 - Time A/B are resident-timezone driven; must handle DST transitions
 - Subscription lifecycle managed in memory (create at A, cleanup at B or on failure)
@@ -60,7 +67,7 @@ Build a new standalone, **stateless** service `azi-3-status-jobs` that monitors 
 ### Phase 1: Analysis & Preparation
 
 - [x] Analyze detailed requirements
-  - **Outcome**: New stateless service `azi-3-status-jobs` will:
+  - **Outcome**: New stateless service `azi-3-status-check-jobs` will:
     1. Add `NO_TOILET_ACTIVITY_ALARM` to Megazord schemas (simple format like bathroom_activity.json)
     2. Run entirely in-memory without any database connections (but designed for easy persistence later)
     3. Parse monitoring config from single JSON environment variable supporting **multiple robots**
@@ -84,7 +91,7 @@ Build a new standalone, **stateless** service `azi-3-status-jobs` that monitors 
 ### Phase 2: Implementation (File/Code Structure)
 
 ```text
-azi-3-status-jobs/
+azi-3-status-check-jobs/
 ├── package.json                             # ✅ COMPLETED - All dependencies configured
 ├── tsconfig.json                            # ✅ COMPLETED - TypeScript 5.6.3 config
 ├── tsconfig.base.json                       # ✅ COMPLETED - Shared compiler options
@@ -95,8 +102,9 @@ azi-3-status-jobs/
 ├── devdocs                                  # ✅ COMPLETED - Comprehensive documentation
 │   └── OVERVIEW.md                          # ✅ COMPLETED - 300+ lines architecture docs
 ├── config/
-│   ├── default.json                         # ✅ COMPLETED - Base config structure
-│   └── production.json                      # ✅ COMPLETED - Production overrides
+│   ├── default.json                         # ✅ COMPLETED - Production config (aligned with azi-3-status-check)
+│   ├── default.dev.json                     # ✅ COMPLETED - Development config
+│   └── custom-environment-variables.json    # ✅ COMPLETED - Env var mappings
 ├── src/
 │   ├── cmd/
 │   │   └── main.ts                          # ✅ COMPLETED - TinyAppUnauthenticated bootstrap with Awilix
@@ -154,7 +162,7 @@ tiny-internal-services/
 │           └── TinybotsEvent.ts             # ✅ COMPLETED - Event already exists
 
 devdocs/tinybots/
-└── azi-3-status-jobs/OVERVIEW.md            # ✅ COMPLETED - Comprehensive documentation
+└── azi-3-status-check-jobs/OVERVIEW.md            # ✅ COMPLETED - Comprehensive documentation
 ```
 
 **Note**: No database repositories, migrations, or typ-e changes needed since this service is stateless.
@@ -198,7 +206,7 @@ devdocs/tinybots/
 
 **1.4 Document the event** ✅
 
-- **File**: `devdocs/tinybots/azi-3-status-jobs/OVERVIEW.md`
+- **File**: `devdocs/tinybots/azi-3-status-check-jobs/OVERVIEW.md`
 - **Implementation**: Created comprehensive 300+ line OVERVIEW.md with:
   - Full architecture documentation
   - Event flow diagrams
@@ -207,7 +215,7 @@ devdocs/tinybots/
   - Deployment instructions
   - Future enhancements section
 
-#### Step 2: Scaffold azi-3-status-jobs Stateless Service ✅ COMPLETED
+#### Step 2: Scaffold azi-3-status-check-jobs Stateless Service ✅ COMPLETED
 
 **2.1 Initialize repository structure** ✅
 
@@ -238,15 +246,80 @@ devdocs/tinybots/
 
 - **Build Status**: ✅ TypeScript compilation successful, dist folder generated
 
-**2.2 Environment Variable Configuration** ✅
+**2.2 Configuration System** ✅
 
-- **Environment Variable**: `TOILET_MONITORING_CONFIG` (single JSON string)
-- **Implementation**: Zod schema validation in `src/config/index.ts`
-- **Actual Schema** (supports **multiple robots**):
+- **Pattern**: Uses `loadConfigValue` from tiny-backend-tools (same as megazord-events, m-o-triggers)
+- **Config Files** (aligned with azi-3-status-check structure):
+  - `config/default.json`: Production defaults
+  - `config/default.dev.json`: Development overrides (debug logging, isLocal: true)
+  - `config/custom-environment-variables.json`: Environment variable mappings
+
+- **Config Structure** (matches azi-3-status-check naming):
 
   ```json
   {
-    "megazordEventServiceUrl": "http://megazord-events:3000",
+    "log": {
+      "level": "info"  // LOG_LEVEL env var
+    },
+    "app": {
+      "appName": "azi-3-status-check-jobs",
+      "port": 8080,
+      "isLocal": false  // AZI_3_STATUS_CHECK_JOBS_IS_LOCAL env var
+    },
+    "sqsConfig": {
+      "region": null,  // AWS_SQS_REGION env var
+      "accessKeyId": null,  // AWS_ACCESS_KEY_ID env var
+      "secretAccessKey": null,  // AWS_SECRET_ACCESS_KEY env var
+      "profile": null,
+      "maxAttempts": 3,
+      "useQueueUrlAsEndpoint": null,
+      "endpoint": null,  // AWS_ENDPOINT env var
+      "queueAttributes": null,
+      "maxNumberOfMessages": 10,
+      "waitTimeSeconds": 20,
+      "visibilityTimeout": 300,
+      "pollIntervalMs": 500
+    },
+    "megazordEvents": {
+      "address": "http://MEGAZORD_EVENTS_ADDRESS"  // MEGAZORD_EVENTS_ADDRESS env var
+    },
+    "statusQueue": {
+      "address": "http://STATUS_QUEUE_ADDRESS"  // STATUS_QUEUE_ADDRESS env var
+    }
+  }
+  ```
+
+- **Config Classes** (`src/config/types.ts`):
+  ```typescript
+  export class AppConfig {
+    @Expose() @IsString() appName!: string
+    @Expose() @IsNumber() port!: number
+    @Expose() @IsBoolean() @Transform(...) isLocal!: boolean
+  }
+
+  export class SQSConfig implements SQS.ISQSConfig {
+    @Expose() @IsString() @IsOptional() region?: string
+    @Expose() @IsString() @IsOptional() queueUrl?: string
+    @Expose() @IsNumber() @IsOptional() maxNumberOfMessages?: number
+    // ... all ISQSConfig properties with decorators
+  }
+
+  export class MegazordEventsConfig {
+    @Expose() @IsString() address!: string
+  }
+
+  export class StatusQueueConfig {
+    @Expose() @IsString() address!: string
+  }
+  ```
+
+- **Monitoring Config** (separate from node-config, via env var):
+  - Environment Variable: `TOILET_MONITORING_CONFIG` (single JSON string)
+  - Implementation: Zod schema validation in `src/config/index.ts`
+  - Supports **multiple robots** with different timezones and windows:
+
+  ```json
+  {
     "windowDurationMinutes": 120,
     "windowCheckIntervalMinutes": 1,
     "robots": [
@@ -1166,7 +1239,7 @@ devdocs/tinybots/
 
 ##### 9.1 Service Overview
 
-- **File**: `devdocs/tinybots/azi-3-status-jobs/OVERVIEW.md`
+- **File**: `devdocs/tinybots/azi-3-status-check-jobs/OVERVIEW.md`
 - **Sections**:
   - Purpose (stateless toilet activity monitoring)
   - Architecture (in-memory state, no database)
@@ -1180,7 +1253,7 @@ devdocs/tinybots/
 ##### 9.2 Update Related Docs
 
 - `devdocs/tinybots/megazord-events/OVERVIEW.md`: Mention new alarm
-- `devdocs/tinybots/OVERVIEW.md`: Add azi-3-status-jobs to service catalog
+- `devdocs/tinybots/OVERVIEW.md`: Add azi-3-status-check-jobs to service catalog
 
 ## 📊 Summary of Results
 

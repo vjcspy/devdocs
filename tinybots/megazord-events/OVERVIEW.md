@@ -1,209 +1,75 @@
-# Megazord Events — Repository Overview
+> **Branch:** develop
+> **Last Commit:** 7b8c1bb (Updated from N/A; prior overview lacked metadata)
+> **Last Updated:** Mon Nov 10 03:10:44 2025 +0000
 
-> Megazord Events is the Tinybots backend that ingests robot events, keeps a catalog of event schemas/providers, and fan-outs notifications (SQS, HTTP triggers, external adaptors) to the rest of the platform.
+# Megazord Events
 
-## 1. Purpose & Scope
+## TL;DR
+- Ingests robot telemetry and stores structured incoming events, schemas, providers, and subscriptions; seeds schemas from `schemas/events/*.json`.
+- Fans out every incoming event into outgoing events per subscription, sending SQS messages for service subscribers or HTTP triggers for automation subscribers.
+- Caches schemas/providers with cron-driven refreshes based on `updated_at`, keeping lookups fast and consistent with the database.
+- Registers robot/event pairs with external adaptors (currently Sensara) whenever subscriptions change so hardware feeds stay aligned.
 
-- Acts as the source of truth for `incoming_event`, `outgoing_event`, `event_schema`, `event_provider`, and `event_subscription` tables (see repositories under `src/repositories`).
-- Provides internal APIs so other services can post robot activity (`/internal/v1/events/...`) and subscribe to event streams.
-- Emits outgoing events whenever a new incoming event arrives, so downstream processors can react through:
-  1. AWS SQS messages (`statusQueue`) for service subscriptions.
-  2. HTTP calls to the Trigger Service for trigger subscriptions.
-  3. Registration hooks to external sensors/adaptors (currently Sensara) so they know which robot/event pairs to send us.
-- Relies heavily on `tiny-backend-tools` for HTTP middleware, database access, validation, permissions, cron jobs, and SQS wrappers.
+## Recent Changes
+- Prior overview had no commit metadata; this is a fresh baseline. Current tree includes a new generated event schema (`NO_TOILET_ACTIVITY_ALARM`) and generator support in `schemas/gen.ts` (level 30, triggers enabled); rerun the generator when updating schema definitions.
 
-## 2. Important term
+## Repo Purpose & Bounded Context
+- Source of truth for event ingestion and routing across TinyBots: manages `incoming_event`, `outgoing_event`, `event_schema`, `event_provider`, and `event_subscription`.
+- Exposes internal APIs for services to post robot events and manage subscriptions; exposes admin/dashboard trigger subscription endpoints gated by Kong/permission validators.
+- Provides cross-platform notifications via SQS (status queue) and the Trigger Service, and coordinates registration with Sensara through adaptor hooks.
 
-### schema
+## Project Structure
+- `src/cmd/app/main.ts`: Awilix DI wiring, Kong/MySQL boot via `TinyDatabaseAppAuthenticated`, middleware setup, Sensara adaptor registration, and route binding.
+- `src/controllers`: Incoming and subscription controllers exposing internal routes plus admin trigger routes; simulate endpoint enabled only when `ENVIRONMENT=academy`.
+- `src/services`: Business logic layers (incoming events, subscriptions, outgoing events, schema/provider caches, schema loader, trigger HTTP client, aggregated adaptor registry, Sensara adaptor).
+- `src/repositories`: SQL accessors for events, schemas, providers, and subscriptions; includes prepared statements and transactional inserts for subscription + detail rows.
+- `src/models`: DTO validators, domain models with `provide()` hydration, and config classes for app, polling, SQS/status queue, services, and permissions.
+- `schemas/`: `gen.ts` generates JSON schema seeds into `schemas/events`; loader pulls them into the database at startup.
+- `config/`: Default and dev config for MySQL, Kong, service addresses, status queue, polling schedule, and permissions provider.
+- `test/`: Integration tests for controllers and unit tests for services/repositories; helpers for DB and permission fixtures.
+- `ci/`: Docker-compose based test harness wiring MySQL, typ-e schema service, Checkpoint, and Prowl.
 
-- table `event_schema`
+## Controllers & Public Surface
+- `GET /internal/v1/events/robots/:robotId/incomings`: Filter incoming events by robot, optional `event_name` and `created_since` Unix timestamp (validated via DTO).
+- `POST /internal/v1/events/robots/:robotId/incomings`: Create an incoming event (validates provider/schema), logs request context.
+- `POST /v1/events/robots/:robotId/incomings/simulate`: Academy-only when `ENVIRONMENT=academy`; requires Kong headers and `userRobotAccessValidator`.
+- `POST /internal/v1/events/robots/:robotId/subscriptions`: Create service or trigger subscriptions (array of event names, optional `until`).
+- `DELETE /internal/v1/events/robots/:robotId/subscriptions/:subscriptionId`: Deactivate a subscription.
+- `GET /internal/v1/events/robots/:robotId/subscriptions/:subscriptionId/outgoings/:outgoingEventId`: Fetch outgoing event after robot/subscription authorization.
+- Trigger-specific routes (internal + admin): create/list/delete trigger subscriptions; `/v1/...` routes require admin validator plus `M_O_TRIGGERS_SETTING_WRITE_ALL`.
 
-- typing: `src/models/domains/EventSchemaDomain.ts`
+## Core Services & Logic
+- **Bootstrap (`App` in `src/cmd/app/main.ts`)**: Registers all modules with Awilix, wires context/logging/serializer middleware, binds routes, and adds Sensara adaptor to the aggregated registry. `createApp()` loads config files via `loadConfigValue`.
+- **EventSchemasLoader**: Locates `schemas/events`, reads JSON definitions (`eventName`, `level`, `hasTrigger`, `isActive`, `description`), and upserts `event_schema` records at startup.
+- **EventSchemasService / EventProvidersService**: Warm caches on init and schedule cron refreshes using `pollingConfig.dbPolling`, polling rows updated since the previous refresh via prepared statements. Provide by-id/name lookups; throw `NotFoundError` on invalid references.
+- **IncomingEventsService**: Validates schema/provider, maps DTO to repository request, writes `incoming_event`, hydrates it with domains, and emits `incoming_event_created` on the event emitter.
+- **EventSubscriptionsService**: On init, subscribes to the emitter to react to new incoming events. `subscribe()` validates event names, rejects duplicate active trigger subscriptions, writes subscription + detail rows transactionally, and registers robot/event pairs with external adaptors (sensara). For each new incoming event, creates outgoing events and:
+  - `SERVICE_SUBSCRIPTION` → sends SQS message to `statusQueue.address` (payload is the outgoing event domain + link).
+  - `TRIGGER_SUBSCRIPTION` → POSTs to Trigger Service with event metadata.
+  - Default branch falls back to SQS.
+  Tracks background tasks for graceful shutdown; `unsubscribe()` deactivates DB rows and unregisters adaptor registrations.
+- **OutgoingEventsService**: Persists outgoing events with status `CREATED`, hydrates them with source incoming event for consumers, and supports list-by-subscription.
+- **AggregatedEventsAdaptorsService / SensaraEventsAdaptorService**: Registry that forwards register/unregister calls to all adaptors. Sensara adaptor maps Tinybots events to sensor registration endpoints and forwards `Call-Ref` from request context.
+- **TriggerService**: Minimal axios client posting `CreateTriggerDto` to `${TRIGGER_SERVICE_ADDRESS}/internal/v1/triggers/triggers` for trigger subscriptions.
 
-Ban đầu nó sẽ được load từ `schemas/events` files, sync từ trong này vào trong db if it doesn't already exist
+## External Dependencies & Cross-Service Contracts
+- Kong: `KongFig` plus validators (`robotValidator`, `userRobotAccessValidator`, admin/permission validators) wrap routes; relies on Checkpoint/Prowl/Wonkers addresses from config.
+- AWS SQS: `SQS.ContextSQS` producer publishes outgoing-event payloads to `statusQueue.address`; credentials/endpoint come from `sqsConfig`.
+- Trigger Service: HTTP dependency for trigger subscriptions at `TRIGGER_SERVICE_ADDRESS`.
+- Sensara adaptor service: HTTP client for registering robot/event subscriptions; uses `TinybotsEvent` mapping from `tiny-internal-services`.
+- Database: MySQL backing all event tables; repositories use prepared statements and connection caching for schema/provider polling.
+- Shared libs: `tiny-backend-tools` (DI, HTTP middleware, cron, DB repo base, validation), `tiny-specs` (HTTP schema validators in tests), `tiny-internal-services` (event enums).
 
-Nó sẽ được reload liên tục trong `src/services/EventSchemasService.ts` dựa trên cronjob(cronjob sử dụng từ `tiny-backend-tool` repository) để cho vào cache mục đích để lấy cho nhanh
+## Testing & Quality Gates
+- Test runner: `yarn test` runs mocha with `ts-node` and nyc; enforces coverage thresholds (95% statements/functions/lines, 70% branches) and runs eslint afterward.
+- Integration: `test/controllers/*IT.ts` cover event filtering/creation, academy simulation, subscription lifecycle, SQS notifications, trigger calls, and Sensara adaptor expectations (via `nock`).
+- Unit: `test/services` cover caching services, schema loader, adaptor registry, trigger client, outgoing-event creation; repository tests validate SQL mappers; model tests ensure DTO validation.
+- Fixtures/helpers: `test/helpers/DbSetup.ts`, `PermissionDbSetup.ts` seed DB and permissions; uses `tiny-backend-testing-tools` and `tiny-specs` validators.
+- CI harness: `ci/test.sh` spins Docker Compose stack (MySQL, typ-e schema generator, Checkpoint, Prowl) and runs service containers; AWS ECR login required for images.
 
-#### Adding a new event schema
-
-1. Thêm event mới vào `schemas/gen.ts` (khai báo trong `TinybotsEvent` và thêm cấu hình riêng trong `CustomConfigs` nếu cần ghi đè `level`/`hasTrigger`).
-2. Chạy `yarn ts-node schemas/gen.ts` (ở thư mục repo) để regenerate toàn bộ file JSON trong `schemas/events`. Lệnh này đảm bảo file mới được tạo và các file cũ được sync đúng format; luôn chạy lại sau khi sửa `gen.ts`.
-
-Các file JSON được gen chỉ chứa đúng 5 trường:
-
-```
-eventName, level, hasTrigger, isActive, description
-```
-
-Không được nhét metadata hoặc application settings khác vào đây. Khi app start, `src/services/EventSchemasLoader.ts` đọc từng file JSON, tạo hoặc update bản ghi tương ứng trong bảng `event_schema`, rồi `EventSchemasService` cache toàn bộ để phục vụ `IncomingEventsService` validate/tự động fill thông tin event type trong runtime (ví dụ khi tạo incoming event mới hoặc filter theo `eventType`). Vì vậy, các file JSON chỉ đóng vai trò “seed” để app tham chiếu và sync schema vào DB/caches.
-
-### provider
-
-- table `event_provider`
-- typing `src/models/domains/ProviderDomain.ts`
-
-Similarly to `schema`, it is also cached and is reloaded into the cache periodically by cronjob
-
-## 2. Controllers / Public Surface
-
-### IncomingEventsController (`src/controllers/IncomingEventsController.ts`)
-
-- `GET /internal/v1/events/robots/:robotId/incomings` — filter stored events by robot, event type (`event_name`), and `created_since`.
-- `POST /internal/v1/events/robots/:robotId/incomings` — create an incoming event from an internal service (validates provider & event schema first).
-- `POST /v1/events/robots/:robotId/incomings/simulate` — academy-only endpoint (enabled when `ENVIRONMENT=academy`) allowing dashboard users to simulate events if they own the robot (`userRobotAccessValidator`).
-
-#### Incomming Event Flows
-
-##### Create Incomming Event
-
-> Chủ yếu quan tâm đến việc tạo event. Hiện tại chưa rõ là bên nào(internal) đang calling để tạo new event.
-
-```typescript
-export class CreateIncomingEventBodyDto {
-  @Expose()
-  @IsString()
-  providerName!: string
-
-  @Expose()
-  @IsString()
-  eventName!: string
-
-  @Expose()
-  @IsNumber()
-  @IsOptional()
-  // level can be optional in the DTO request but later will be filled from eventSchema via provide()
-  level?: number
-
-  @Expose()
-  @IsString()
-  referenceId?: string
- }
-```
-
-- Khi API nội bộ tạo sự kiện mới, service `IncomingEventsService` tra cứu `schema` & `provider` hợp lệ, ghi bản ghi vào bảng
-  `incoming_event`, sau đó emit sự kiện vào event bus (src/services/IncomingEventsService.ts:63).
-- EventSubscriptionsService đã đăng ký listener từ lúc init, nên mỗi incoming event mới sẽ dẫn tới
-  `handleNewlyAddedIncomingEvent`, service này lấy tất cả subscription còn active của robot cho đúng eventTypeId (src/
-  services/EventSubscriptionService.ts:132).
-- **Với từng subscription tìm thấy**, hệ thống tạo một `outgoing_event` vào database(outgoing_event sẽ có thông tin `incomming_event` và `subscription`) để theo dõi trạng thái gửi đi nhờ
-  OutgoingEventsService.create, rồi attach thêm dữ liệu incoming event cho payload (`src/services/
-  EventSubscriptionService.ts:173`, `src/services/OutgoingEventService.ts:32`).
-
-##### Ý Nghĩa Khối switch Subscription Type
-
-- `SubscriptionType.SERVICE_SUBSCRIPTION`: publish thông báo qua SQS tới status queue nội bộ bằng notify,
-  payload là dữ liệu outgoing event đã chuẩn hóa kèm link để consumer truy ngược API nếu cần (`src/services/
-  EventSubscriptionService.ts:187`).
-- `SubscriptionType.TRIGGER_SUBSCRIPTION`: thay vì push lên queue, gọi TriggerService.sendTrigger để POST tới Trigger
-  Service, truyền CreateTriggerDto với thông tin `robot`, `level`, `event type` nhằm kích hoạt `automation/trigger` downstream
-  (`src/services/EventSubscriptionService.ts:196`, `src/services/TriggerService.ts:10`).
-  - call to endpoint: `internal/v1/triggers/triggers`
-- default: fallback trở lại SQS để đảm bảo những loại subscription chưa biết vẫn nhận thông báo như service
-  subscription bình thường (src/services/EventSubscriptionService.ts:199).
-- Hai nhánh SERVICE & default dùng chung notify, hàm này đóng gói message với metadata from, to, link,
-  payload, rồi đẩy lên hàng đợi cấu hình tại statusQueueConfig.address qua SQS.ContextSQS (src/services/
-  EventSubscriptionService.ts:322).
-
-### EventSubscriptionController (`src/controllers/EventSubscriptionsController.ts`)
-
-- `POST /internal/v1/events/robots/:robotId/subscriptions` — create or trigger-type subscriptions (takes `eventNames`, optional `until`, optional `isTriggerSubscription`).
-- `DELETE /internal/v1/events/robots/:robotId/subscriptions/:subscriptionId` — soft-deactivate a subscription.
-- `GET /internal/v1/events/robots/:robotId/subscriptions/:subscriptionId/outgoings/:outgoingEventId` — fetch an outgoing event after authorizing robot/subscription linkage.
-- Trigger-specific endpoints (both internal and dashboard/admin versions):
-  - `POST /internal|/v1/events/robots/:robotId/subscriptions/triggers` — single `eventName`, creates a trigger subscription, enforces uniqueness.
-  - `GET /internal|/v1/events/robots/:robotId/subscriptions/triggers` — list active trigger subscriptions for a robot.
-  - `DELETE /internal|/v1/events/robots/:robotId/subscriptions/:subscriptionId` or `/internal|/v1/events/robots/:robotId/subscriptions/triggers/:subscriptionId` — deactivate trigger subscriptions. Public (`/v1/...`) routes require admin auth + `M_O_TRIGGERS_SETTING_WRITE_ALL`.
-
-These controllers are bound in `src/cmd/app/main.ts`, which wires validators (`ValidationMiddleware`, `robotValidator`, `userRobotAccessValidator`, admin/permission validators) provided by `tiny-backend-tools`.
-
-## 3. Core Services & Responsibilities (all under `src/services`)
-
-### EventSubscriptionsService
-
-- Registers an event handler on `EventsName.INCOMING_EVENT_CREATED` during `init()`.
-- `subscribe()` validates event names through `EventSchemasService`, enforces single active trigger subscription per `eventName`+robot, writes to `event_subscription` + `_detail`, and calls `AggregatedEventsAdaptorsService.register()` so external adaptors know about the subscription. Returns hydrated `SubscriptionDomain`.
-- `handleNewlyAddedIncomingEvent()` loads active subscriptions for the event type + robot, creates `outgoing_event` records via `OutgoingEventsService`, and fan-outs per subscription type:
-  - `SERVICE_SUBSCRIPTION` → enqueue SQS message (payload is the serialized `OutGoingEventDomain`) via `SQS.ContextSQS`, targeting `statusQueue.address`.
-  - `TRIGGER_SUBSCRIPTION` → call `TriggerService.sendTrigger()` (HTTP POST to Trigger Service) with robot/event metadata.
-- `unsubscribe()` deactivates DB rows and unregisters events from external adaptors.
-- Tracks background tasks to coordinate graceful shutdown when the app stops.
-
-### IncomingEventsService
-
-- Responsable for validating (`eventSchemasService`, `eventProvidersService`) and persisting incoming events, hydrating them with schema/provider domains, and emitting `EventsName.INCOMING_EVENT_CREATED` so `EventSubscriptionsService` can react.
-- `getAll()` builds repository filters from query params (`createdSince`, event name) and gracefully handles missing schemas/providers by logging errors.
-
-### OutgoingEventsService
-
-- Persists outgoing events and rehydrates them with the source incoming event (`IncomingEventsService.getByIdNoAuth()`) so consumers receive event metadata (schema/provider) even if they only have the outgoing ID.
-
-### EventSchemasService & EventProvidersService
-
-- Cache layers around their respective repositories. On `init()` they:
-  - Warm the cache.
-  - Start Cron jobs using `pollingConfig.dbPolling` to periodically reload rows updated since the last refresh.
-- Provide O(1) lookups by id or name, throwing `NotFoundError` for invalid references (tests rely on these errors).
-
-### EventSchemasLoader
-
-- On startup, scans `schemas/events/*.json`, inserts/updates schemas, and logs successes/failures. Useful when adding new event types without manual SQL.
-
-### AggregatedEventsAdaptorsService & SensaraEventsAdaptorService
-
-- `AggregatedEventsAdaptorsService` is a registry of provider-specific adaptors (currently only Sensara). When subscriptions are (un)registered, it iterates over adaptors and forwards robot/event pairs.
-- `SensaraEventsAdaptorService` maps Tinybots event names (from `tiny-internal-services` `TinybotsEvent` enum) to Sensara adaptor endpoints:
-  - Location events → `/internal/v2/sensara/residents/location/register`.
-  - Activity/hearing events → `/internal/v1/...`.
-- Adds the request context's `Call-Ref` header for traceability.
-
-### TriggerService
-
-- Simple axios wrapper that POSTs `CreateTriggerDto` (`outgoingEventId`, `robotId`, `level`, `eventTypeId`) to `${TRIGGER_SERVICE_ADDRESS}/internal/v1/triggers/triggers`.
-
-## 4. Persistence & Domain Models
-
-- Domain objects live in `src/models/domains`. They all extend `BaseDomain`, have `provide()` methods to hydrate related entities, and expose computed getters (e.g., `SubscriptionDetailDomain.eventName`, `IncomingEventDomain.providerName`).
-- Repositories in `src/repositories` wrap SQL for each table:
-  - `IncomingEventsRepository`: insert/filter incoming events.
-  - `OutgoingEventsRepository`: insert/outgoing lookups.
-  - `EventSubscriptionsRepository`: transactional insert into `event_subscription` + `_detail`, filtering (with grouping), deactivation.
-  - `EventSchemasRepository` & `ProvidersRepository`: maintain prepared statements + cached DB connections for efficient polling.
-- Configuration classes under `src/models` (`AppConfig`, `PollingConfig`, `SQSConfig`, `ServicesConfig`, `PermissionsConfig`) are decorated with `class-validator` rules and loaded via `loadConfigValue()` in `createApp()`.
-
-## 5. Runtime / Request Flow
-
-1. **Bootstrap (`src/cmd/app/main.ts`)**
-   - `App` extends `TinyDatabaseAppAuthenticated`, wiring Kong, MySQL, SQS, and Awilix DI.
-   - Registers singletons for repositories/services/controllers, sets up middlewares (context, logging, serializer), and binds routes.
-   - Registers the Sensara adaptor with the aggregated adaptor service so subscriptions automatically call out to Sensara.
-2. **Incoming event ingestion**
-   - HTTP request hits `IncomingEventsController.create()` → DTO validation → `IncomingEventsService.create()` writes DB row and emits the event.
-3. **Fan-out**
-   - `EventSubscriptionsService` reacts to the emitter, loads matching subscriptions, creates outgoing events, enqueues SQS messages, or POSTs to Trigger Service depending on `SubscriptionType`.
-4. **Queries**
-   - Consumers read events via controllers, which in turn rely on domain objects already hydrated with schema/provider data for consistent responses (`WebAppValidators.validate('Subscription', ...)` in tests).
-
-## 6. External Dependencies & Cross-Service Contracts
-
-- **tiny-backend-tools**: Provides the majority of infrastructure (Express middlewares, validators, Repository base class, Awilix wrapper, Cron, SQS producer, TinyDatabaseAppAuthenticated, permission checks).
-- **tiny-specs**: Supplies shared HTTP schema validators used in tests (`WebAppValidators`).
-- **tiny-internal-services**: Defines `TinybotsEvent` enum for Sensara mapping.
-- **Kong ecosystem**: `KongFig`, `robotValidator`, `userRobotAccessValidator`, and headers like `x-consumer-id` enforce gateway policies.
-- **Checkpoint / Prowl / Wonkers**: Configured via `config/*.json` as robot/user/permission services.
-- **Trigger Service**: Receives trigger payloads for `SubscriptionType.TRIGGER_SUBSCRIPTION`.
-- **Sensara adaptor service**: Receives subscription registrations/unregistrations so physical sensors know what to report.
-- **AWS SQS / status queue**: `SQS.ContextSQS` publishes outgoing-event payloads to whatever queue URL/ARN is configured in `statusQueue.address`.
-
-## 7. Test Suites Worth Reading
-
-- `test/controllers/IncomingEventsControllerIT.ts` — end-to-end coverage for filtering, creation, and academy simulation flows (validations, authentication, errors).
-- `test/controllers/EventSubscriptionControllerIT.ts` — full trigger/service subscription lifecycle, permissioning, Sensara adaptor expectations (via `nock`), SQS side effects, and edge cases (duplicate triggers, auth failures).
-- `test/services/*.ts` — unit tests for caching services, loaders, adaptors, trigger service, outgoing-event creation, etc. These show expected behaviour of each service without HTTP.
-- Helpers (`test/helpers/DbSetup.ts`, `PermissionDbSetup.ts`) show which tables/fixtures the system relies on when running locally.
-
-## 8. Operational Notes
-
-- Key env vars: `TRIGGER_SERVICE_ADDRESS`, `SENSARA_ADAPTOR_SERVICE_ADDRESS`, `STATUS_QUEUE_ADDRESS`, `WONKERS_USER_ACCOUNT_ADDRESS`, `WONKERS_INTERNAL_ADDRESS`, AWS creds for SQS, and `DB_RW_HOST`.
-- `pollingConfig.dbPolling` determines cache refresh cadence (`*/2 * * * *` by default, faster in `default.dev.json`).
-- When adding new event types, drop JSON definitions into `schemas/events` so `EventSchemasLoader` can persist them automatically.
-- Graceful shutdown waits for `EventSubscriptionsService` background handlers to finish to avoid losing outgoing events.
+## Gap Analysis
+- Error handling for event fan-out is muted: `handleNewlyAddedIncomingEvent` swallows exceptions without logging; failures could silently drop notifications.
+- TriggerService lacks context propagation, retries, and timeouts; transient failures could block trigger-type subscriptions without fallback or telemetry.
+- Schema/provider loader runs only at startup; runtime changes rely solely on `updated_at` polling—ensure DB triggers or processes bump timestamps when schema/provider records change.
+- Sensara adaptor registry currently hard-coded; future provider-specific behaviour needs configuration to avoid sending unsupported events.
+- Devdocs were previously untracked/missing metadata; keep this file updated per release hash and rerun `yarn ts-node schemas/gen.ts` when altering `schemas/gen.ts`.

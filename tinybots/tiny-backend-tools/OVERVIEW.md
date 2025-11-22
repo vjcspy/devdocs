@@ -1,184 +1,89 @@
-# tiny-backend-tools — Overview
+> **Branch:** master  
+> **Last Commit:** 46b6202 (Updated from 2cc3467)  
+> **Last Updated:** 2025-11-21
 
-## TL;DR
-- Shared TypeScript toolkit that every Tinybots Node service imports for Express scaffolding, Awilix DI, request context propagation, `/healthcheck` routes, and MySQL lifecycle management (`lib/index.ts`).
-- Centralizes Kong authentication, permission enforcement, validation, serialization, GraphQL helpers, and domain models so repos like `megazord-events`, `m-o-triggers`, `sensara-adaptor`, and the Wonkers suite expose consistent HTTP surfaces.
-- Ships infrastructure helpers (cron job harnesses, AWS SQS producer/consumer with context-aware logging, async module lifecycle, pools/timers, config loaders) plus security/util services (email, password hashing, TOTP, OAuth API client).
-- Mocha + NYC suite exercises controllers, middleware, security services, and Localstack-backed SQS flows; `ci/docker-compose.yml` is what CI runs (Node 22, Yarn 3.8.7, Localstack).
+# tiny-backend-tools Overview
 
-## Table of Contents
-- [Repo Purpose & Interactions](#repo-purpose--interactions)
-- [Inventory & Layout](#inventory--layout)
-- [Controllers / Public Surface](#controllers--public-surface)
-- [Key Services / Repository & Logic](#key-services--repository--logic)
-- [External Dependencies & Cross-Service Contracts](#external-dependencies--cross-service-contracts)
-- [Tests & Tooling](#tests--tooling)
-- [Data & Integration Map](#data--integration-map)
-- [Gaps & Risks](#gaps--risks)
+## Title & TL;DR
 
-## Repo Purpose & Interactions
+- Platform toolkit that every TinyBots Node.js/TypeScript service imports for Express bootstrapping, Kong auth/permission guards, request context propagation, and shared MySQL lifecycle wrappers.
+- Ships cross-cutting middleware (validation, serializer, context logger, async and error wrappers), GraphQL permission helpers, and DI-ready base app classes covering unauthenticated, authenticated, and DB-backed services.
+- Bundles infrastructure helpers (AWS SQS producer/consumer with context-aware tracing, cron job harnesses, resource pools/timers), security services (password, TOTP, email), config loaders, and Awilix async module orchestration.
+- Tests run via `yarn test` with Mocha + NYC; SQS integration depends on Localstack. Node >= 20, Yarn 3.8.7; build emits `dist/`.
 
-`tiny-backend-tools` is the platform layer for Tinybots’ Node.js services. It provides:
+## Recent Changes Log
 
-- Base Express application classes (`TinyApp*` and `TinyDatabaseApp*`) that boot servers on port 8080, wire Morgan logging, attach request context IDs, register `/healthcheck`, and expose Awilix containers for controllers/services. Database variants create a MySQL pool via `mysql2`.
-- Authentication/authorization utilities that wrap `kong-js`’s `KongAuthenticationProvider`, validate the `x-consumer-*` headers set by Kong, and dial the Dashboard user service to enforce permission constants (see `lib/constants/Permissions.ts`). Repos such as `wonkers-accounts`, `wonkers-api`, and `m-o-triggers` rely on these guards.
-- Cross-cutting middleware (validation, serializer, async handler, context logger, Slack-backed error middleware) so every service behaves consistently under Kong, Cron, and queue workloads.
-- Infrastructure modules (cron jobs, SQS, pools, timers, OAuth HTTP client) used by automation services (`megazord-events`, `sensara-adaptor`) to connect to AWS, Slack, SMTP, and other HTTP APIs.
+- Dependency and CI hardening from PR “task/PROD-496-fix-cves” (diff vs 2cc3467): `package.json`, `yarn.lock`, and `ci/test.sh` updated to remediate vulnerabilities and refresh pinned versions. No runtime or API surface changes detected; rerun smoke tests if consumers rely on transitive versions.
 
-Because this package exports everything via `lib/index.ts`, any change propagates into all Tinybots backend repos after a single publish—treat it as a platform component rather than a leaf library.
+## Repo Purpose & Bounded Context
 
-## Inventory & Layout
+- Serves as the shared backend platform layer for TinyBots services (megazord-events, m-o-triggers, sensara-adaptor, Wonkers APIs, etc.). Any change here propagates broadly, so backward compatibility and tracing correctness are critical.
+- Defines the standard HTTP/GraphQL/Kong contract (headers, permission checks, error/serialization shape) and tracing semantics (`Call-Ref`/`Svc-Ref` headers).
+- Provides reusable infrastructure abstractions so individual services focus on domain logic rather than boilerplate.
 
-```
-tiny-backend-tools/
-├── lib/                     # TypeScript source exported to consumers
-│   ├── controller/          # Base controllers, DbHealthCheck, AuthenticatedController
-│   ├── middleware/          # Context/logger, admin validators, validation, error handling
-│   ├── validation/          # KongValidationService
-│   ├── service/             # EmailService, PasswordService, TotpService
-│   ├── providers/           # cron jobs, AWS SQS, permission API, generic pools
-│   ├── modules/             # AwilixWrapper + async module lifecycle contracts
-│   ├── repository/          # Database + Transaction wrappers
-│   ├── model/               # BaseDomain + config/domain DTOs
-│   ├── graphql/             # BaseResolver + input validator
-│   ├── utils/               # Config loaders, ApplicationError, ContextGroup transformer
-│   └── TinyApp*/TinyDatabaseApp*.ts
-├── test/                    # Mocha/Chai suites covering every exported surface
-├── ci/                      # docker-compose + scripts (Localstack + node runner)
-├── dist/, coverage/         # Build outputs (gitignored)
-├── package.json             # Yarn 3 workspace metadata, scripts (Node >=20)
-└── yarn.lock
-```
+## Project Structure
 
-- `scripts.test` runs `nyc mocha --require ts-node/register` across `test/**/*.ts`, enforces coverage (statements 55%, lines 60%), then prints HTML reports in `coverage/`.
-- `ci/docker-compose.yml` spins up Localstack (SQS) and a Node 22 Alpine runner executing `ci/node-verify.sh` (installs deps, runs `yarn test` with `NODE_OPTIONS="--no-experimental-strip-types"`).
-- The repo ships compiled JS in `dist/`, but contributors work directly in `lib/` TypeScript.
+- `lib/` source of truth, re-exported through `lib/index.ts`.
+  - `TinyApp*` / `TinyDatabaseApp*`: Express bootstrap classes (port 8080, morgan logger, JSON/body parsers, `/healthcheck`, keep-alive tuning).
+  - `controller/`: `HealthCheck`, `DbHealthCheck`, base `Controller` and `AuthenticatedController`.
+  - `middleware/`: context + logger propagation, class-validator/transformer validation, serializer, async handler, admin/permission guards, error -> Slack reporter, context groups.
+  - `validation/`: `KongValidationService` wrapping `kong-js`.
+  - `providers/`: `cron` (ContextCronJob), `sqs` (ContextSQS), `pool` (SimpleContextPool/TimerPool), `PermissionProvider` HTTP client.
+  - `modules/`: `AwilixWrapper` for async module init/stop.
+  - `repository/`: `Database`, `Transaction`, base `Repository`.
+  - `model/`: DTOs and domains (`BaseDomain`, `Robot`, `Relation`, `Password`, `LogConfig`, `MySQLConfig`, `SmtpConfig`, `PermissionsProviderConfig`).
+  - `service/`: `PasswordService` (PBKDF2 + zxcvbn), `TotpService` (notp), `EmailService` (EJS + Nodemailer).
+  - `api/`: `OauthApiClient` + `ITokenManager` contract.
+  - `utils/`: error wrappers, config loaders (`loadConfigValue`, `loadConfigValueV2`), class-validator helpers, map utilities.
+  - `constants/`: error codes, permissions, Awilix container keys.
+  - `graphql/`: `BaseResolver`, `InputValidator`, permission-aware resolver wrapper.
+  - `context/` & `logger/`: request context creation, header setters, and logger patching.
+- `ci/docker-compose.yml` spins up Localstack SQS + Node runner executing `ci/node-verify.sh`; `ci/test.sh` handles CI test flow.
+- `test/` Mocha suites for apps, middleware, services, providers (cron/pool/sqs), utils, GraphQL helpers; `test/providers/sqs/sqsIT.ts` is the Localstack integration test.
+- `dist/` build output (gitignored); `coverage/` NYC reports.
 
-## Controllers / Public Surface
+## Controllers & Public Surface
 
-### Base Express App Classes
-- `TinyAppUnauthenticated` & `TinyAppAuthenticated` (`lib/TinyApp*.ts`) build an Express server (morgan logger, body parsers, `/healthcheck`) without a DB. The authenticated variant injects `KongAuthenticationProvider` and `KongValidationService`.
-- `TinyDatabaseAppBase` + `TinyDatabaseAppUnauthenticated/Authenticated` bootstrap a MySQL pool via `MySQLConfig`, register a singleton `Database`, expose `app` + `container`, and start on port 8080 while keeping connections alive (keepAliveTimeout 61s). `TinyDatabaseAppAuthenticated` inherits Kong guards.
-- `TinyDatabaseAppAuthenticatedPermissions` adds permission enforcement. It registers Awilix entries (`ContainerNames.VALIDATOR_ADMIN`, `ContainerNames.VALIDATOR_PERMISSION`, etc.) and exposes helpers:
-  - `useAdminValidatorMiddleware()` – Express `Handler` that authenticates dashboard admins.
-  - `usePermissionValidatorMiddleware(permissions)` – ensures the Kong-authenticated admin owns the listed `Permission.*` constants.
-  - `usePermissionRoutes()` – pattern matching variant via `matchPermissions`.
-- Applications extend one of these classes, register controllers on the Awilix container (`this.container.register('fooController', asClass(FooController))`), and wire routes on `this.app` before calling `app.start()`.
+- **Base app classes:** `TinyAppUnauthenticated` and `TinyAppAuthenticated` start Express with morgan logging, JSON/urlencoded parsers, `/healthcheck`, and Awilix container setup. Authenticated variant wires `KongAuthenticationProvider` + `KongValidationService`.
+- **Database variants:** `TinyDatabaseAppBase` adds `mysql2` pool + `Database` wrapper; `TinyDatabaseAppUnauthenticated` mounts `DbHealthCheck`; `TinyDatabaseAppAuthenticated` layers Kong auth; `TinyDatabaseAppAuthenticatedPermissions` registers permission provider + admin/permission middleware and exposes `useAdminValidatorMiddleware`, `usePermissionValidatorMiddleware`, `usePermissionRoutes`.
+- **Health checks:** `HealthCheck` invokes a supplied callback immediately; `DbHealthCheck` pings MySQL pool and reports connection state.
+- **Middleware surface:**  
+  - `contextMiddleware` + `contextLoggerMiddleware` attach `IRequestContext` (`callRef`, `serviceRef`) and logger child into requests/responses.  
+  - `ValidationMiddleware` offers header/body/query/path validators via class-validator/transformer.  
+  - `SerializerMiddleware` serializes `BaseDomain` objects honoring context groups; `ContextGroupMiddleware` tags request with serialization groups.  
+  - `AsyncHandlerMiddleware` wraps async route handlers.  
+  - `AdminMiddleware` exposes admin/robot/tessa-owner validators, `permissionValidator`, `matchPermissions`, and `userRobotAccessValidator`.  
+  - `ErrorMiddleware` normalizes errors, logs via context logger, returns JSON, and notifies Slack on 5xx.
+- **GraphQL helper:** `BaseResolver.Wrap` adds optional permission validation and DTO validation; requires `SetPermissionApiProvider` during bootstrap.
 
-```ts
-this.app.route('/internal/v1/foo')
-  .get(
-    contextMiddleware(randomUUID),
-    ValidationMiddleware.headerValidator(KongHeader, false, true, false),
-    this.usePermissionValidatorMiddleware([Permission.TAAS_ORDER_READ_ALL]),
-    asyncHandler(this.container.resolve<FooController>('fooController').handleFoo)
-  )
-  .use(errorMiddleware(slackService), serializerMiddleware);
-```
+## Core Services & Logic
 
-### Health Checks
-- `HealthCheck` (`lib/controller/HealthCheck.ts`) immediately invokes the provided callback, used by `TinyAppUnauthenticated`.
-- `DbHealthCheck` (`lib/controller/DbHealthCheck.ts`) pings the MySQL pool (via the `Database` wrapper) and returns `state: 'no connection with mysql database'` when the pool rejects. Base apps mount it at `GET /healthcheck`.
-
-### Kong Auth & Permission Guards
-- `KongValidationService` (`lib/validation/KongValidationService.ts`) wraps `KongAuthenticationProvider` to enforce:
-  - `authenticateAdmin` (requires `x-consumer-username: tinybots-dashboard-users` and `role === ADMIN`),
-  - `authenticateTessaOwner` (`role === USER`),
-  - `authenticateRobot`, `authenticateIntegration`, `authenticateIntegrationSingleOrg`, and `checkUserRobotAccess`.
-- `AdminMiddleware` (`lib/middleware/AdminMiddleware.ts`) exposes request handlers:
-  - `adminValidator`, `robotValidator`, `tessaOwnerValidator`, `userRobotAccessValidator`.
-  - `permissionValidator(permissions)` / `matchPermissions(routes)` integrate with `PermissionAPIProvider` for dashboard permission checks.
-  - `getReqUser` returns the cached `DashboardUser|Robot|IntegrationUser` patched onto `req`.
-- These middlewares expect `KongValidationService` and optionally an `IPermissionProvider` to be bound in the container (handled automatically by `TinyDatabaseAppAuthenticatedPermissions`).
-
-### Validation & Serialization
-- `ValidationMiddleware` (`lib/middleware/ValidationMiddleware.ts`) offers `bodyValidator`, `queryValidator`, `pathValidator`, and `headerValidator` that run `class-transformer` + `class-validator`. When validation fails, it responds with HTTP 400 and aggregated constraint messages.
-- `serializerMiddleware` serializes any `BaseDomain` (or arrays) returned by controllers through `BaseDomain.toPlainWithContext`, ensuring `@Expose` + `@ContextGroup` annotations are respected. Use `ContextGroupMiddleware` + `ContextGroup` transformer if you need field-level masking per route grouping.
-- `asyncHandler` wraps async Express handlers to funnel errors to `next()`.
-
-### Request Context, Logging & Errors
-- `contextMiddleware` attaches an `IRequestContext` to every request containing `callRef` (either from inbound `Call-Ref` header or generated), `serviceRef`, and writes them back to response headers. `contextLoggerMiddleware` then attaches (optionally) a winston child logger to the context so downstream services/loggers can include `callRef`.
-- `errorMiddleware` standardizes error responses:
-  - Handles `ApplicationError`, `ts-http-errors`’ `ExtendedError`, and arbitrary objects with a `statusCode`.
-  - Sends Slack alerts via `tb-ts-slack-notification` whenever a 5xx error occurs, including the `callRef`.
-- `serializerMiddleware` and `contextLoggerMiddleware` should be mounted early to ensure `loggerFromCtx` works everywhere.
-
-### GraphQL Helper Surface
-- `graphql/BaseResolver` + `InputValidator` enable permission-aware GraphQL resolvers. Call `BaseResolver.SetPermissionApiProvider(provider)` during bootstrap, then wrap resolvers with `BaseResolver.Wrap({ selectUserId, permissions, validateArgDto }, resolver)` to run permission checks and DTO validation before executing user code.
-
-## Key Services / Repository & Logic
-
-### Data Access
-- `Database` + `Transaction` (`lib/repository`) wrap `mysql2` pooling with promise-based `query`, `queryOne`, and transaction helpers. `TinyDatabaseAppBase` registers a singleton instance in Awilix.
-- `Repository` is a minimal base class that injects the `Database` for domain-specific repositories downstream services define.
-- `MySQLConfig` + `SmtpConfig` provide strongly typed config DTOs validated through `class-validator`.
-
-### Domain Models & Serialization
-- `BaseDomain` centralizes serialization, validation (`FromPlain`), and error wrapping (throws `ApplicationError` with `ErrorHttpCode` mappings). `Robot`, `SimpleRobot`, `Relation`, `RelationTessaOwner`, `Password`, `LogConfig`, and `PermissionsProviderConfig` describe common Tinybots entities.
-- `ContextGroup` transformer lets you annotate sensitive fields to only be serialized when `ContextGroupMiddleware` attaches the matching group to the request context.
-
-### Security & Identity Services
-- `PasswordService` enforces password strength via `zxcvbn`, generates salts/hashes with PBKDF2 (SHA-512), and verifies both Node- and Java-generated password strings.
-- `TotpService` issues/validates 2FA secrets and tokens using `notp` + Base32 encodings.
-- `EmailService` + `EmailSender` render `subject.ejs` + `html.ejs` templates and dispatch via Nodemailer transports created by `createMailTransport`.
-- `KongValidationService` (covered above) plus `PermissionAPIProvider` provide HTTP front doors for Kong-authenticated requests and dashboard permission validation.
-- `OauthApiClient` is an Axios wrapper that injects Bearer tokens via `ITokenManager`, refreshes on 401s, supports configurable retry counts, and gates concurrent refreshes (waiters) so only one refresh occurs at a time.
-
-### Infrastructure Helpers
-- `providers/cron` exposes `ContextCronJob` and `SimpleContextCronJob`, which automatically create request contexts/logger children per execution and catch/log `ApplicationError`s.
-- `providers/sqs` implements `ContextSQS`, a combined producer/consumer:
-  - `send` serializes payloads, injects the request `callRef` as a message attribute, and retries on missing queues by calling `createQueue`.
-  - `poll` returns an async generator of `IContextMessage` objects with `ack()`/`fail()`, and attaches a nested context logger for each message.
-  - Implements the `IAsyncModule` contract so it can be registered with `Modules.AwilixWrapper` for lifecycle management.
-- `providers/pool` ships `SimpleContextPool` (generic resource pooling with stop logic) and `TimerPool` (blocking scheduler using `setTimeout` resources).
-- `modules/AwilixWrapper` tracks every registered async module, calling `init(ctx)` during bootstrap and `stop(ctx)` during shutdown, ensuring Cron/SQS/Pools can clean up gracefully.
-
-### Utilities
-- `utils/utils.ts` contains `loadConfigValue` (uses `config` package) and `loadConfigValueV2` (accepts custom providers) to instantiate DTOs or primitives with validation.
-- `utils/Errors.ts` defines `ApplicationError` (supports `annotate` for nested errors/plain objects) and `logApplicationError`.
-- `constants/ErrorCodes`, `constants/Permissions`, and `errors/Errors.ts` hold HTTP codes and reusable `ExtendedError` subclasses for misuse of Kong guards.
-- `logger/ContextLogger` + `logger/Logger` provide typed logger interfaces and default console loggers.
+- **Auth & permissions:** `KongValidationService` enforces consumer identity (dashboard users, robots, integrations, users) and roles before attaching entities to the request. `PermissionAPIProvider` posts to Dashboard service (`PermissionsProviderConfig.address`) to validate `Permission.*` constants; used by middleware and GraphQL wrappers.
+- **Request context & logging:** `Context.newRequestContext` derives `callRef` from inbound header or URL + UUID; `setHeader` writes `Call-Ref`/`Svc-Ref` to responses; `loggerFromCtx` returns patched child logger (winston-compatible).
+- **Data layer:** `Database` and `Transaction` wrap mysql2 pool with `query`, `queryOne`, `ping`, `getConnection`; `Repository` base injects `Database`. `MySQLConfig` DTO validates pool settings.
+- **Domains & serialization:** `BaseDomain.FromPlain` validates DTOs, wraps validation errors into `ApplicationError` with error codes; `ContextGroup` controls field exposure.
+- **Infrastructure:**  
+  - `ContextSQS` produces/consumes messages with JSON bodies + message attributes storing `callRef`; retries sending (note: retry counter increments twice per failure, effectively halving `maxAttempts`).  
+  - `ContextCronJob`/`SimpleContextCronJob` schedule work with inherited context/logging and error handling.  
+  - `SimpleContextPool` and `TimerPool` manage pooled async resources and timers with graceful stop semantics.  
+  - `AwilixWrapper` tracks async modules and runs `init/stop` lifecycle hooks in order.
+- **Security & comms:** `PasswordService` hashes/verifies passwords (PBKDF2, strength via zxcvbn, supports Java-style hashes), `TotpService` issues/validates TOTP secrets/tokens, `EmailService` renders EJS templates and sends via Nodemailer transport. `OauthApiClient` wraps Axios to inject access tokens, refresh on 401 once per burst (queued waiters), and retry bounded by `_maxRetries`.
+- **Utilities:** `loadConfigValue` and `loadConfigValueV2` load/validate config (supports primitive validation and DTO instantiation); `ApplicationError` supports annotations + Slack-safe logging via `logApplicationError`; map helpers (`MultiIndexedMap`, `Map` wrappers) used in tests.
 
 ## External Dependencies & Cross-Service Contracts
 
-- **Kong Gateway (`kong-js`)**: `KongAuthenticationProvider` validates `x-consumer-username`, `x-authenticated-userid`, and `x-authenticated-scope` headers. Roles map to `Errors.NotAdminError`, etc. Consumers must forward original Kong headers to downstream services so shared middleware can re-validate.
-- **Dashboard User Service**: `PermissionAPIProvider` posts to `/internal/v3/admin/accounts/:userId/validate` on the Wonkers API surface (`kongFig.dashboardService.address`). Failures throw `ForbiddenError` or `InternalServerError`.
-- **MySQL**: `TinyDatabaseAppBase` expects a pool config (`host`, `user`, `password`, `database`, `connectionLimit`). Health checks and repositories assume the schema defined in `typ-e` / `wonkers-db`.
-- **AWS SQS**: `ContextSQS` uses the v3 AWS SDK; tests rely on Localstack. Message attributes always include `callRef` to propagate tracing info. `ISQSConfig` optionally accepts `endpoint`, `profile`, `maxAttempts`, `maxNumberOfMessages`, `waitTimeSeconds`, etc.
-- **Slack**: `errorMiddleware` depends on `tb-ts-slack-notification`’s `SlackService`. Provide an instance that implements `notifyError(message, error)` to route 5xx incidents to the #alerts channel.
-- **SMTP + EJS**: Email templates live outside this repo; `EmailService.sendEmail(templatePath, from, to, locals)` expects `html.ejs` and `subject.ejs` to exist beneath `templatePath`.
-- **Cron & Timers**: `ContextCronJob` uses the `cron` package for schedules like `'*/5 * * * *'` and automatically builds request contexts/loggers for each run.
-- **OAuth / HTTP APIs**: `OauthApiClient` expects an `ITokenManager` implementation (often defined inside consuming repos). It wraps Axios interceptors to refresh tokens.
+- **Kong Gateway (`kong-js`)** for header validation and role detection; depends on upstream Dashboard and robot user stores.
+- **Dashboard Permission API** (`PermissionsProviderConfig.address`), called by `PermissionAPIProvider.validate()` for admin permission checks.
+- **MySQL** via `mysql2` pooling for any DB-backed TinyApp variants.
+- **AWS SQS** via AWS SDK v3; message attributes carry `callRef`; tests rely on Localstack (port 4566).
+- **Slack** via `tb-ts-slack-notification` for 5xx error alerts.
+- **SMTP** via Nodemailer + EJS templates in consumer repos; `EmailService` expects `html.ejs` and `subject.ejs` under a provided template path.
+- **Cron** via `cron` package for scheduled jobs.
+- **OAuth/HTTP** via `axios` with token manager interface for downstream APIs.
 
-## Tests & Tooling
+## Testing & Quality Gates
 
-- **Application scaffolding tests** (`test/app/*.ts`): `TinyDatabaseAppAuthenticatedPermissionsTest.ts` uses `supertest` + `nock` to prove controllers can be registered, Kong headers validated, permissions enforced, `/healthcheck` wired, and Slack error middleware invoked without a live DB.
-- **Middleware coverage** (`test/middleware/*.ts`): Each middleware has unit tests—e.g., `ErrorMiddlewareTest.ts` validates Slack notifications for 5xx errors, `ContextMiddlewareTest.ts` ensures `Call-Ref` propagation, `ContextGroupMiddleware.ts` checks group patching, and `ValidationMiddlewareTest.ts` asserts 400 responses.
-- **Security & service tests** (`test/service/*.ts`): `KongValidationServiceTest.ts`, `PasswordServiceTest.ts`, `TotpServiceTest.ts`, and `EmailServiceTest.ts` cover authentication flows, password hashing, TOTP verification, and EJS email rendering with fixtures in `test/fixtures/email/`.
-- **Infrastructure tests**:
-  - `test/providers/sqs/sqsIT.ts` spins up Localstack via `ci/docker-compose`, validates `createQueue`, `send` retries, streaming `poll`, `ack()/fail()`, and re-delivery semantics.
-  - `test/providers/pool/*.ts` assert pooling and timer scheduling semantics.
-  - `test/providers/cron/*.ts` check `newCronContext` logger inheritance and `ContextCronJob` scheduling.
-- **GraphQL & utils**: `test/modules/AsyncModulesTest.ts`, `test/utils/utils.ts`, `test/utils/MultiIndexedMapTest.ts`, etc., ensure wrappers and helpers behave as expected.
-- **Running tests locally**: `yarn test` (Node 20+) runs everything. Integration suites need Localstack on port 4566; use `docker compose -f ci/docker-compose.yml up localstack` or run `ci/local-test.sh`.
-
-## Data & Integration Map
-
-1. **HTTP request flow**: Express routes run through `contextMiddleware` → `contextLoggerMiddleware` → `ValidationMiddleware` → application controllers (`Controller`/`AuthenticatedController`) → domain services/repositories. Responses pass through `serializerMiddleware` and `errorMiddleware`, which log via `loggerFromCtx` and optionally ping Slack.
-2. **Authentication & permissions**: Kong attaches user headers. `KongValidationService` authenticates them, caches the user on `req`, then `PermissionAPIProvider` hits the Dashboard service to ensure they own the required `Permission` constants (e.g., `Permission.M_O_TRIGGERS_SETTING_WRITE_ALL`). Robot-facing routes can instead call `robotValidator` or `userRobotAccessValidator`.
-3. **Data models**: Downstream repos instantiate `BaseDomain` subclasses (Robot, Relation, Password, LogConfig, SmtpConfig). Serialization respects context groups, ensuring sensitive fields are masked unless a middleware adds the appropriate group symbol.
-4. **MySQL interactions**: `Database` handles connection pooling and queries for `tinybots` / `wonkers-db` schemas. `DbHealthCheck` pings the pool used by Cron jobs and controllers.
-5. **Async workflows**: Cron jobs (`ContextCronJob`) and SQS consumers/producers (`ContextSQS`) create new request contexts/loggers so queue processing retains the original `callRef`. `TimerPool.enqueue` supports delayed execution without blocking the event loop.
-6. **Error propagation**: `ApplicationError` captures nested errors/objects; `errorMiddleware` logs structured JSON, attaches `callRef`/`serviceRef`, and notifies Slack for server errors.
-7. **External calls**: `OauthApiClient` wraps axios to add OAuth2 flows for other HTTP APIs. Email/TOTP/password services share credential management across repos so user flows look identical.
-
-## Gaps & Risks
-
-- **Retry accounting in `ContextSQS.retry`**: `retry()` increments the `attempts` counter twice per failure, so `maxAttempts` effectively halves. This might prematurely abort retries under transient AWS errors—verify desired semantics or fix the counter.
-- **Password strength enforcement is opt-in**: `PasswordService.createPassword()` does not force a `checkPasswordStrength()` call. Repos must remember to call it or risk allowing weak passwords.
-- **Email template path injection**: `EmailService.sendEmail(templatePath, ...)` concatenates `${template}/html.ejs` and `${template}/subject.ejs` without sanitization. Ensure callers only pass trusted template directories to prevent reading arbitrary files.
-- **GraphQL permission provider bootstrap**: `BaseResolver` throws if `SetPermissionApiProvider()` was not invoked before calling `Wrap()`, but there is no compile-time enforcement. Services must remember to wire it during startup, otherwise resolvers crash on first request.
-- **CI scripts assume AWS ECR credentials**: `ci/test.sh` logs into AWS ECR and Docker Hub before running tests. Local contributors without credentials must use `yarn test` directly or edit the script, otherwise CI helpers fail early.
-- **Async module lifecycle discipline**: `ContextSQS`, `ContextCronJob`, and pools rely on consumers to call `init(ctx)` and `stop(ctx)` (often through `Modules.AwilixWrapper`). Forgetting to register them means jobs never start or resources leak on shutdown.
-
-This overview should give you the map needed to extend Tinybots services safely, whether you are adding a new controller, wiring cron jobs, or evolving the shared infrastructure exported by `tiny-backend-tools`.
+- Run `yarn test` (or `yarn unit-test`) → `nyc mocha --require ts-node/register --recursive test/**/*.ts`, then HTML coverage report and thresholds: statements ≥55%, functions ≥50%, branches ≥45%, lines ≥60%.
+- Integration: `test/providers/sqs/sqsIT.ts` requires Localstack; `ci/docker-compose.yml` starts Localstack + Node runner via `ci/node-verify.sh` with `AWS_ENDPOINT=http://localstack:4566`.
+- Other suites cover app bootstraps, middleware (context, serializer, admin/permissions, validation, error), services (KongValidationService, Password/TOTP/Email), cron/pool modules, GraphQL wrappers, and util helpers.
+- Build: `yarn build` removes `dist` then compiles via `tsc`; Node engine set to >=20.0.0; package manager locked to Yarn 3.8.7.

@@ -1,229 +1,65 @@
-# Sensara Adaptor Backend – Onboarding Brief
+> **Branch:** develop
+> **Last Commit:** 3258c9d (Updated from N/A - metadata missing previously)
+> **Last Updated:** Fri Nov 7 04:46:00 2025 +0000
+
+# Sensara Adaptor Overview
 
 ## TL;DR
-
-- Bridges Sensara’s resident telemetry (notifications, ADL events, last-known location) with Tinybots robots by translating, storing, and forwarding events plus managing resident↔robot mappings.
-- Exposes a small admin/public surface for resident onboarding and internal endpoints for notifications, poller orchestration, pilot-report storage, and event backfills; everything else runs via background jobs and pollers started on boot.
-- Stateful data lives in MySQL (`tinybots`) and the analytics database, while long-running jobs keep Sensara Server-Sent Events (SSE) streams healthy and raise Slack alerts on drift.
-
-## Repo Purpose & Interactions
-
-Sensara Adaptor is a Node.js/TypeScript backend that keeps Tinybots robots in sync with Sensara’s care platform. It stores which robot listens to which resident, listens to Sensara SSE streams, propagates activity/location triggers to the internal Event Service, and offers supporting endpoints for pilot reporting and manual notifications (`src/App.ts:281-334`). The app bootstraps via `TinyDatabaseAppAuthenticatedPermissions`, so it inherits context/logging middleware, admin auth, and permission checks for the public admin API (`src/App.ts:257-305`).
-
-### Sensara REST + SSE
-
-- Direction: Bi-directional.
-- Surface: HTTPS `/v3/notifications`, `/v3/streams`, `/v3/hardware/measurements/last-location` plus a custom SSE client.
-- Purpose: Register resident streams, pull last-known locations, and push alert notifications.
-- Auth & resilience: OAuth password grant via `SensaraAuthenticationService`; `SensaraApiService` retries once then Slack-notifies and throws (`src/sensara/SensaraApiService.ts:62-193`).
-- Code: `src/sensara/**`, `src/jobs/SensaraEventsJob.ts`, pollers.
-
-### Tinybots Event Service
-
-- Direction: Outbound.
-- Surface: HTTPS `/internal/v1/events/robots/:id/incomings` via `EventService`.
-- Purpose: Emit Tinybots events such as hearing-range transitions, ADL mappings, and activity bursts.
-- Auth & resilience: No explicit retry in adapters; upstream client handles HTTP errors.
-- Code: `src/jobs/LocationPoller.ts:106-113`, `src/jobs/ActivityPoller.ts:97-104`, `src/jobs/SensaraEventsJob.ts:167-175`.
-
-### Slack Webhooks
-
-- Direction: Outbound.
-- Surface: `tb-ts-slack-notification`.
-- Purpose: Surface Sensara API/stream failures and poller issues.
-- Auth & resilience: Fire-and-forget; most callers swallow errors after notifying.
-- Code: `src/jobs/LocationPoller.ts:62-91`, `src/jobs/SensaraEventsJob.ts:84-87`, `src/sensara/SensaraApiService.ts:76-119`.
-
-### MySQL `tinybots`
-
-- Direction: Inbound storage.
-- Surface: Tables `sensara_resident_robot`, `sensara_location_polling`, `tessa_hearable_location`, `sensara_event*`.
-- Purpose: Persist resident bindings, scheduled pollers, and ingested events.
-- Auth & resilience: Connections via `tiny-backend-tools` `Database`; transactional writes with rollbacks.
-- Code: `src/repository/ResidentRepository.ts:13-154`, `src/repository/LocationRepository.ts:5-64`, `src/repository/SensaraEventRepository.ts:6-79`.
-
-### MySQL `analytics`
-
-- Direction: Inbound storage.
-- Surface: Table `sensara_pilot_report`.
-- Purpose: Capture pilot script telemetry and expose a reporting API.
-- Auth & resilience: Separate pool via `IntelligenceDatabase`.
-- Code: `src/repository/PilotReportRepository.ts:6-55`.
-
-### Kong / Dashboard Permissions
-
-- Direction: Inbound protection.
-- Surface: Kong headers plus the Tinybots permission service.
-- Purpose: Enforce admin access and `SENSARA_RESIDENT_WRITE_ALL` on public endpoints.
-- Auth & resilience: `ValidationMiddleware.headerValidator` combined with `usePermissionValidatorMiddleware`.
-- Code: `src/App.ts:281-299`.
-
-## Repository Inventory
-
-- `src/App.ts` – Express bootstrap, Awilix DI container registration, middleware stack, and route wiring (`src/App.ts:120-337`).
-- `src/server.ts` – Entry point that creates the app, runs background jobs (events stream + poller restarts) before listening (`src/server.ts:1-9`).
-- `src/controller/` – HTTP controllers for residents, locations, notifications, and internal information aggregation.
-- `src/service/` – `ResidentService` and `LocationService` orchestrate repositories, pollers, and downstream services.
-- `src/jobs/` – Long-running workers (`SensaraEventsJob`, `RestartPollerJobs`) plus `LocationPoller`/`ActivityPoller` implementations.
-- `src/eventsource/` – Custom fork of `eventsource` that tracks last contact time and wraps Sensara SSE logic.
-- `src/sensara/` – API + authentication clients and environment-specific wrappers.
-- `src/repository/` – Data mappers for MySQL (`ResidentRepository`, `LocationRepository`, `SensaraEventRepository`, `PilotReportRepository`, `IntelligenceDatabase`).
-- `src/model/` – DTOs for validation, domain objects (e.g., `ResidentRobot`, Sensara event models), config classes.
-- `test/` – Integration tests (`controller`, `repository`) that hit real MySQL, plus unit tests for jobs, models, and Sensara clients.
-- `config/` – `node-config` JSON files for MySQL, Kong, Sensara OAuth, Slack.
-- `docs/` – OpenAPI fragments and diagrams describing the public admin API.
-- `ci/` & `Dockerfile` – Build/publish assets; Dockerfile performs Yarn 3 build, compiles TypeScript, and runs `yarn start`.
-
-## Data & Integration Map
-
-### `ResidentRobot` (`sensara_resident_robot`)
-
-- Description: Stores `{id, residentId, robotId}` per resident↔robot binding; hearable locations live alongside in `tessa_hearable_location` (`robot_id`, `location`).
-- Usage: Managed transactionally so registration inserts/updates both tables (`src/repository/ResidentRepository.ts:66-104`). Controllers rely on conflict detection to guard poller creation.
-
-### `LocationPollConfig` (`sensara_location_polling`)
-
-- Description: Persists `{id, robot_id, type, until}` when a poll is scheduled; rows join back to `sensara_resident_robot` so restarted pollers can resolve resident IDs.
-- Usage: `LocationRepository.getPollers()` returns active rows for `RestartPollerJobs` and watchers (`src/repository/LocationRepository.ts:28-65`).
-
-### `SensaraEvent` + `sensara_event_schema`
-
-- Description: Stores events with `sensara_id`, `resident_robot_id`, payload, and schema metadata; schema rows are lazily created per event name/type.
-- Usage: `SensaraEventsJob` writes every SSE event before forwarding downstream, and `InternalInformationController.getSensaraEvents` queries via `SensaraEventRepository.getEventReport` with optional `createdSince` filtering (`src/repository/SensaraEventRepository.ts:42-79`).
-
-### `SensaraEventReport`
-
-- Description: DTO representing joined event data with resident + robot context, returned verbatim from `/internal/v1/sensara/events`.
-- Usage: Served by `InternalInformationController.getSensaraEvents` (`src/controller/InternalInformationController.ts:54-68`).
-
-### `PilotReport` (`sensara_pilot_report` in analytics DB)
-
-- Description: Stores script execution telemetry (serial, robot, script version/execution IDs, planned/executed timestamps, measurement/message).
-- Usage: Inserted through `/internal/v1/sensara/reports/pilot` and fetched for reporting/backfills (`src/repository/PilotReportRepository.ts:30-55`).
-
-### DTOs (`ResidentRegistrationDto`, `RegisterLocationPollDto`, `SensaraNotificationDto`, etc.)
-
-- Description: Class-validator DTOs ensuring incoming payloads contain required types.
-- Usage: Applied via `ValidationMiddleware` on every route (`src/App.ts:281-334`).
-
-## Controllers / Public Surface
-
-### `PUT /v1/sensara/residents`
-
-- Request: `ResidentRegistrationDto` (`residentId`, `robotId`, `hearableLocations[]`).
-- Response: 200 JSON `ResidentRobotRegistration`.
-- Guards: Kong header validator + admin check + `SENSARA_RESIDENT_WRITE_ALL` + DTO validation (`src/App.ts:281-289`).
-- Behavior: `ResidentController.registerResident` logs with context, upserts the resident + hearable locations transactionally, returns the mapping, then reloads the events stream to include the new resident (`src/controller/ResidentController.ts:23-44`). Tested via `test/controller/ResidentControllerIT.ts:61-110`.
-
-### `DELETE /v1/sensara/residents/:residentId`
-
-- Request: `ResidentIdPathDto` path param.
-- Response: 204 on success, 404 if resident missing.
-- Guards: Same Kong/admin/permission middleware as the PUT route (`src/App.ts:290-299`).
-- Behavior: Calls `ResidentService.deleteResident` and converts `ResidentRobotNotFoundError` to HTTP 404 (`src/controller/ResidentController.ts:46-68`). Tests in `test/controller/ResidentControllerIT.ts:112-148`.
-
-### `POST /internal/v1/sensara/notification`
-
-- Request: `SensaraNotificationDto` (`robotId`, `notificationType`, `timeStamp`, `message`).
-- Response: 204.
-- Guards: Body validation only (internal endpoint) (`src/App.ts:300-304`).
-- Behavior: Controller resolves the resident via `ResidentService`, converts to `SendNotificationDto`, and delegates to `SensaraApiService.sendNotification`; unknown residents raise 409 (`src/controller/NotificationController.ts:22-49`). Tests mock Sensara/Event Service with `nock` (`test/controller/NotificationControllerIT.ts:50-140`).
-
-### `POST /internal/v1/sensara/residents/location/register`
-
-- Request: `RegisterLocationPollDto` (`robotId`, ISO `until`).
-- Response: 201 with empty body.
-- Guards: Body validation only (`src/App.ts:306-310`).
-- Behavior: Looks up the resident, persists a poll config, creates a `LocationPoller`, responds immediately, and starts polling asynchronously (`src/controller/LocationController.ts:23-46`). Conflict thrown for unknown robots. Integration tests verify validation, conflict handling, and event emission (`test/controller/LocationControllerIT.ts:53-141`).
-
-### `POST /internal/v1/sensara/residents/activity/register`
-
-- Request: `RegisterLocationPollDto`.
-- Response: 201.
-- Guards: Same as the location register route (`src/App.ts:312-315`).
-- Behavior: Mirrors `pollLocation` but instantiates an `ActivityPoller` that checks recent activity timestamps (`src/controller/LocationController.ts:48-71`). Tests in `test/controller/LocationControllerIT.ts:143-229`.
-
-### `POST /internal/v1/sensara/reports/pilot`
-
-- Request: `PilotReportDto` (script metadata; `executedAt` required).
-- Response: 201.
-- Guards: Body validation (`src/App.ts:318-321`).
-- Behavior: Persists telemetry in the analytics DB via `PilotReportRepository.addReportItem`; controller only logs and stores the payload (`src/controller/InternalInformationController.ts:20-35`). Tests cover validation errors + happy path (`test/controller/InternalInformationControllerIT.ts:75-126`).
-
-### `GET /internal/v1/sensara/reports/pilot`
-
-- Request: `PilotReportQueryDto` with optional `createdSince`.
-- Response: 200 JSON array sorted ascending.
-- Guards: Query validation (`src/App.ts:324-328`).
-- Behavior: Fetches results from analytics; consumers can supply an ISO timestamp for incremental pulls (`src/controller/InternalInformationController.ts:37-52`). Tests exercise filtering semantics (`test/controller/InternalInformationControllerIT.ts:130-186`).
-
-### `GET /internal/v1/sensara/events`
-
-- Request: `EventQueryDto` optional `createdSince`.
-- Response: 200 JSON array of `SensaraEventReport`.
-- Guards: Query validation (`src/App.ts:330-334`).
-- Behavior: Serves persisted Sensara events for analytics/backfill consumers (`src/controller/InternalInformationController.ts:54-69`). Tested in `test/controller/InternalInformationControllerIT.ts:188-239`.
-
-Cross-cutting concerns: every controller extracts a `context` for structured logging via `tiny-backend-tools` and relies on the global `errorMiddleware` for consistent 4xx/5xx responses (`src/App.ts:257-337`).
-
-## Key Services & Logic
-
-### **ResidentService & ResidentRepository**
-
-— Thin wrapper that upserts resident↔robot rows and hearable locations transactionally, deletes residents, and resolves mappings by resident or robot (`src/service/ResidentService.ts:15-27`, `src/repository/ResidentRepository.ts:66-154`). Errors: throws `ResidentRobotNotFoundError` on delete; other DB errors bubble up after a rollback. No retries; natural idempotency because duplicate registrations overwrite.
-
-### **LocationService + Pollers**
-
-— Registers polling jobs in DB and instantiates poller classes with all dependencies (`src/service/LocationService.ts:32-89`). `LocationPoller` normalizes Sensara location/label strings, posts `CLIENT_IN_HEARING_RANGE` events when the resident enters configured locations, and deletes the DB poller once triggered or when `until` expires. Errors trigger Slack notifications and poller cleanup (`src/jobs/LocationPoller.ts:54-116`). `ActivityPoller` looks for last activity within 120 seconds to emit `ACTIVITY` events (`src/jobs/ActivityPoller.ts:52-108`). Neither poller retries API calls beyond Slack-notified failures; they rely on `SensaraApiService` raising `InternalServerError`.
-
-### **SensaraApiService & Authentication**
-
-— Wraps two OAuth clients (main/test environment) and exposes helpers to send notifications, register/delete streams, fetch SSE connections with signed fetch, and query last locations (`src/sensara/SensaraApiService.ts:62-193`). Retries once by default (configurable via constants) before notifying Slack and throwing `InternalServerError`. Tokens cached by `SensaraAuthenticationService`, which refreshes 60 seconds before expiry (`src/sensara/SensaraAuthenticationService.ts:20-65`).
-
-### **SensaraEventsJob & SensaraEventSource**
-
-— On boot, fetches all residents, registers two SSE streams (main + test) through `SensaraEventSource`, and schedules both heartbeat checks (every 30s) and periodic restart (every 6h) (`src/jobs/SensaraEventsJob.ts:65-128`). `SensaraEventSource` manages connecting, toggles between pending/current streams, and notifies Slack when retry backoff exceeds the configured timeout (`src/eventsource/SensaraEventSource.ts:69-225`). Incoming events are persisted and mapped to Tinybots events via `convertEvent` (ADL, notification, extramural transitions) before being posted to the Event Service (`src/jobs/SensaraEventsJob.ts:139-221`). Test residents use `sensaraTestResident` so traffic is routed to Sensara’s test host.
-
-#### SSE pipeline details
-- **lastEventId resume**: before opening a new SSE, `SensaraEventSource` asks `SensaraEventRepository.getLastEvent()` and forwards that value to `SensaraApiService.getStream`. Sensara consumes the `Last-Event-ID` header to replay missed payloads, so reloads do not lose telemetry (`src/eventsource/SensaraEventSource.ts:80-88`, `src/sensara/SensaraApiService.ts:126-151`).
-- **Environment-specific OAuth**: residents are split into production vs test lists. When registering or creating a stream, the adaptor looks at `residents[0].residentId` only to pick the right OAuth client/host, while `filterValues` still lists every resident in the batch; each stream therefore covers multiple residents as long as they share the same environment (`src/jobs/SensaraEventsJob.ts:72-88`, `src/sensara/SensaraApiService.ts:88-113`).
-- **EventSource fork**: the local `EventSource` class is a fork of the npm `eventsource` module with a `timeOfLastContact` property for heartbeat monitoring. It handles the `text/event-stream` connection, parses chunks via `eventsource-parser`, auto-reconnects (default 3s), and tracks `lastEventId`. `SensaraEventSource` simply wires listeners for `AdlEventResponse`, `NotificationResponse`, etc. on this class (`src/eventsource/EventSource.ts:1-210`).
-- **ADL semantics**: `AdlEventResponse` conveys Activities of Daily Living detected by Sensara sensors (eating, sleeping, entering/leaving). `AdlEventType` enumerates those values and `SensaraEventsJob.convertEvent` maps each one to the appropriate `TinybotsEvent` such as `INSIDE_HOME`, `IN_BED`, `TOILET_ACTIVITY` (`src/model/sensara/AdlEventResponse.ts:1-24`, `src/jobs/SensaraEventsJob.ts:179-205`).
-- **Error recovery**: `errorListener` closes both pending and current streams, waits using the Fibonacci backoff list (`1,1,2,...,34` seconds), and calls `createEventSource` again. If the delay exceeds `slackNotifyTimeout`, a Slack alert is sent (`src/eventsource/SensaraEventSource.ts:145-174`).
-
-### **RestartPollerJobs**
-
-— Reads outstanding pollers from DB and restarts either activity or location pollers when the process boots (`src/jobs/RestartPollerJobs.ts:11-46`). All creation exceptions are logged; no retry/backoff beyond initial attempt.
-
-### **Internal Data Services**
-
-– `PilotReportRepository` writes to analytics; `SensaraEventRepository` lazily registers event schemas; `LocationRepository` ensures only future pollers are returned; `IntelligenceDatabase` is a thin subclass pointing to the analytics pool (`src/repository/*.ts`).
-
-## Runtime / Request Flow
-
-1. **Boot** – `createApp()` loads configs (MySQL, Kong, permissions, Sensara OAuth, Slack) via `loadConfigValue`, registers dependencies in Awilix, and applies middleware (`src/App.ts:394-438`). `server.ts` then calls `runEventsJob()` and `restartPollers()` before awaiting `start()` so background processes are already running when the HTTP server comes up (`src/server.ts:1-9`).
-2. **Inbound admin requests (resident CRUD)** – Kong headers are validated, admin/tokens checked, and DTOs parsed. `ResidentController` writes to MySQL through `ResidentService` and immediately triggers `SensaraEventsJob.reload()` so SSE subscriptions include the new resident (`src/controller/ResidentController.ts:23-44`). Deletes cascade to both resident and hearable location tables.
-3. **Internal poller registration** – Internal services call `/internal/v1/sensara/residents/{location|activity}/register`. After validation, controllers look up the resident, create a poller row, respond 201, and start the poller. Pollers fetch Sensara → post Tinybots events → call `LocationRepository.removePoller`. Slack notifications fire on API failure.
-4. **Sensara SSE ingestion** – `SensaraEventsJob` obtains resident lists, registers SSE streams via `SensaraApiService.getStream`, and wires event listeners for `AdlEventResponse`, `NotificationResponse`, and `StateExtramuralResponse` (`src/eventsource/SensaraEventSource.ts:96-143`). `handleEvent` hydrates resident context, persists events, converts them to Tinybots semantics, and posts to the Event Service (`src/jobs/SensaraEventsJob.ts:139-177`). Heartbeats monitor `timeOfLastContact`, and `reload` re-establishes streams if the gap exceeds 120 seconds.
-5. **Pilot reports & telemetry dump** – Internal tooling pushes script execution reports via `/internal/v1/sensara/reports/pilot`, which simply stores records to analytics. Consumers can page through aggregated reports or persisted events via `GET /internal/v1/sensara/{reports|events}` for backfills or audits.
-
-## Tests & Quality Signals
-
-- **Controller IT suites** (`test/controller/*.ts`) spin up the full app against real MySQL schemas using helper `DbSetup` and `PermissionDbSetup`. They assert validation errors, permission enforcement, conflict handling, successful 2xx responses, and integration behavior (e.g., `LocationControllerIT` mocks Sensara + Event Service with `nock` and checks that events were posted, `test/controller/LocationControllerIT.ts:75-228`).
-- **Repository IT suites** hit live tables to prove persistence logic (upsert semantics, poller filtering, schema creation). See `test/repository/ResidentRepositoryIT.ts`, `LocationRepositoryIT.ts`, `SensaraEventRepositoryIT.ts`, and `PilotRepositoryIT.ts`.
-- **Job & Service unit tests** rely on `ts-mockito` and `tiny-internal-services-mocks` to assert poller retry/cleanup behavior, event conversions, and SSE reconnect logic (`test/jobs/*.ts`). `SensaraEventsJobTest.ts` covers ADL, notification, and extramural translations plus stream restarts.
-- **Sensara client tests** (`test/sensara/*.ts`) mock OAuth/token endpoints and REST APIs to verify retry thresholds, Slack notification triggers, and token caching semantics.
-- **Model tests** confirm `SensaraEvent.fromEvent` conversions (`test/model/sensara/SensaraEventTest.ts`).
-- **Coverage & lint gating** – `yarn test` runs Mocha via `ts-node` with NYC instrumentation, checks coverage thresholds (89/85/60/89), and runs `yarn lint` afterwards (`package.json:7-18`). Tests currently require environment variables pointing to MySQL hosts and event service URLs; root DB passwords are hardcoded in the suites, so CI must provide isolated databases.
-
-Green test suite confidence: resident onboarding/offboarding, notification delivery, poller registration/execution, telemetry ingestion, and SSE persistence all have either integration or unit coverage. No automated tests cover the internal `/internal/v1/sensara/events` consumer beyond retrieval.
+- Node.js/TypeScript adaptor linking Sensara resident telemetry to TinyBots via SSE ingestion, pollers, and admin APIs.
+- Maintains resident<->robot bindings, posts TinyBots events for ADL, location, and notifications, and persists Sensara events and pilot reports into MySQL (tinybots + analytics).
+- Long-running jobs keep Sensara streams live (main + test), restart pollers, and alert Slack when ingestion stalls or API calls fail.
+
+## Recent Changes Log
+- Previous overview lacked metadata; refreshed against commit 3258c9d.
+- Added `/internal/v2/sensara/residents/location/register` with `RegisterLocationPollV2Dto` to fire specific `IN_*` TinyBots events from Sensara `LOCATION_*` labels via `LocationEventMapper`, alongside the legacy hearing-range poller.
+- Location poller creation now accepts optional `event` mapping, letting pollers emit precise room-level events in addition to `CLIENT_IN_HEARING_RANGE`.
+
+## Repo Purpose & Bounded Context
+- Backend service that translates Sensara activity/location into TinyBots events, persists telemetry, and exposes admin/internal endpoints for resident onboarding, notifications, poller scheduling, and reporting.
+- Built on `tiny-backend-tools` `TinyDatabaseAppAuthenticatedPermissions`, inheriting context/logging, validation, permissions, and DB wiring (`src/App.ts`).
+
+## Project Structure
+- `src/App.ts` sets DI container, middleware, routes, and start/stop lifecycle; resolves controllers/jobs and ties to MySQL + analytics pools.
+- `src/server.ts` boots the app, runs `SensaraEventsJob` and `RestartPollerJobs`, then starts HTTP.
+- `src/controller/` admin/internal controllers for residents, location/activity pollers, notifications, and reporting.
+- `src/service/` core services (`ResidentService`, `LocationService`, `LocationEventMapper`) orchestrate repositories, pollers, and downstream clients.
+- `src/jobs/` long-running workers: Sensara SSE ingestion, poller restarts, location/activity pollers.
+- `src/eventsource/` custom EventSource fork with last-contact tracking plus Sensara-specific wrapper for registration, reload, and backoff.
+- `src/sensara/` OAuth clients and REST/SSE API wrapper for Sensara environments.
+- `src/repository/` MySQL access for residents, pollers, Sensara events, and pilot reports; `IntelligenceDatabase` targets the analytics pool.
+- `src/model/` DTOs, domain models, and Sensara payload types.
+- `config/` node-config defaults and env var mappings; `docs/` OpenAPI fragments/diagrams.
+- `test/` integration and unit suites (Mocha + tsx + nock + ts-mockito) with DB fixtures under `test/util`.
+
+## Controllers & Public Surface
+- `PUT /v1/sensara/residents` (admin + `SENSARA_RESIDENT_WRITE_ALL`): upserts resident<->robot binding plus hearable locations; triggers SSE reload (`src/App.ts`).
+- `DELETE /v1/sensara/residents/:residentId` (same guards): deletes binding, returns 404 on missing resident.
+- `POST /internal/v1/sensara/notification`: body-validated Sensara notification; resolves resident by robot ID, sends via Sensara API.
+- `POST /internal/v1/sensara/residents/location/register`: schedule hearing-range poller until timestamp; emits `CLIENT_IN_HEARING_RANGE` when last location/label matches stored hearable locations.
+- `POST /internal/v2/sensara/residents/location/register`: schedule location poller that emits a specific `TinybotsEvent IN_*` when `LOCATION_*` label matches requested event.
+- `POST /internal/v1/sensara/residents/activity/register`: schedule activity poller that emits `ACTIVITY` if recent activity seen within 120s.
+- `POST /internal/v1/sensara/reports/pilot`: persist pilot script telemetry into analytics DB.
+- `GET /internal/v1/sensara/reports/pilot`: fetch pilot reports, optional `createdSince`.
+- `GET /internal/v1/sensara/events`: fetch persisted Sensara event report rows, optional `createdSince`.
+- Cross-cutting: Kong header validator + admin/permission middleware on public admin routes; all routes use DTO validation and shared error middleware.
+
+## Core Services & Logic
+- **ResidentService/Repository:** transactional upsert of resident<->robot plus hearable locations; conflict detection on delete; helpers to fetch by resident/robot for routing controllers and SSE streams.
+- **LocationService & Pollers:** writes poller rows, rebuilds pollers on boot, and constructs poller instances with Sensara API, EventService client, Slack notifier, and optional `LocationEventMapper` event mapping. Location poller polls every 3s until trigger/expiry, posts `CLIENT_IN_HEARING_RANGE` or requested `IN_*` event, and cleans DB row. Activity poller checks `LastLocation.timestamp` within 120s and posts `ACTIVITY`; both enqueue Slack errors and remove poller rows on failure.
+- **SensaraEventsJob + SensaraEventSource:** registers SSE streams for main + test residents, resumes from last stored event ID, listens for ADL/notification/extramural events, persists each, maps selected events to TinyBots events, forwards via EventService, and heartbeats every 30s. Automatic reload on stalls or every 6h; Fibonacci backoff with Slack alerts when delays exceed notify threshold.
+- **SensaraApiService & Authentication:** OAuth password-grant via per-env auth services; REST calls for notifications, stream registration/deletion, stream fetch with signed `Last-Event-ID`, and last location queries. Retries once for notification/stream operations; last-location retries disabled pending upstream fixes.
+- **Repositories:** `LocationRepository` stores pollers (`LOCATION`/`ACTIVITY`) with optional `location_label`; `SensaraEventRepository` lazily ensures event schemas and exposes reports/resume IDs; `PilotReportRepository` writes analytics telemetry with optional `createdSince` filtering.
 
 ## External Dependencies & Cross-Service Contracts
+- Sensara REST/SSE hosts (main + test) for notifications, stream registration/data, and last-location lookups; OAuth credentials per environment.
+- TinyBots Event Service (`services.eventServiceAddress`) for posting incoming events tied to robot IDs.
+- Slack webhook (`tb-ts-slack-notification`) for API/stream/poller failures.
+- MySQL `tinybots` for resident mappings, pollers, and Sensara events; MySQL `analytics` for pilot reports.
+- Kong/permissions provider for admin route protection; relies on shared middleware from `tiny-backend-tools`.
+- Internal libs: `tiny-internal-services` DTOs + EventService client; `tiny-backend-tools` for app harness, DB, validation, permissions, config.
 
-- **`tiny-backend-tools`** – Provides the app base class, DI helpers, middleware (context logging, serializer, validation), config loaders, DB abstractions, and permission middleware. Controllers depend on context + logging from here (`src/App.ts:257-337`).
-- **`awilix`** – Backing DI container used through `Modules.AwilixWrapper` to resolve controllers/services/jobs on demand (`src/App.ts:108-255`).
-- **`tiny-internal-services` + `tiny-internal-services-mocks`** – Supplies the `EventService` HTTP client, DTOs (e.g., `IncomingEventBodyDto`, `TinybotsEvent`, `SensaraNotificationType`), and test doubles for event posting (`src/jobs/LocationPoller.ts:2-15`, `test/jobs/LocationPollerTest.ts:1-108`).
-- **`tb-ts-http-errors` & `tb-ts-slack-notification`** – Unified error helpers and Slack webhook client; used to surface 4xx/5xx to callers and ops (`src/controller/LocationController.ts:37`, `src/jobs/LocationPoller.ts:62`).
-- **`kong-js`** – Supplies `KongHeader` schema for validating Kong-provided headers on admin routes (`src/App.ts:281-299`).
-- **`tiny-backend-testing-tools`** – Integration-test helpers for provisioning admin accounts/permissions and DB fixtures (`test/controller/ResidentControllerIT.ts:1-58`, `test/util/DbSetup.ts`).
-- **Shared Config Contracts** – `config/default*.json` defines required secrets/environment variables (DB hosts, Sensara OAuth credentials, Slack hook, etc.), and `custom-environment-variables.json` maps them to env var names. Deployments must deliver both `mysql` and `mysql-intelligence` creds plus `sensara`/`testSensara` OAuth pairs.
+## Testing & Quality Gates
+- Mocha + tsx runners under `test/`; integration suites spin up real MySQL (robot/resident fixtures via `DbSetup`), use nock to mock Sensara/Event Service, and cover controller paths including V2 location registration, notifications, and SSE/event storage.
+- Repository tests exercise upserts, poller filtering, schema creation, and pilot report retrieval; job tests cover SSE conversions/restarts and poller behavior.
+- `yarn test` runs NYC-instrumented suite (excluding `src/eventsource/**`), generates HTML report, enforces coverage thresholds (statements 89, functions 85, branches 60, lines 89), then runs `yarn lint`.
+- Required env vars mapped in `config/custom-environment-variables.json` (DB hosts, Sensara host/auth, event service, permissions provider, Slack hook, test resident); tests depend on accessible MySQL instances.

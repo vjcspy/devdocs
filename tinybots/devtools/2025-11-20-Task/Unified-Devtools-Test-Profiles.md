@@ -30,11 +30,11 @@ Thiết kế và đặt kế hoạch áp dụng profile trong `devtools/docker-c
 ### ⚠️ Key Considerations
 > This describes the extremely important points or reasons that need attention
 
-- Chuẩn hóa tên DB về `mysql-dashboard-db` và `mysql-type-db`; cập nhật host/link tương ứng (`wonkers-mysql-db` → `mysql-dashboard-db`, `mysql-db` → `mysql-type-db`). Giữ nguyên naming theo mong đợi của `wonkers-graphql`.
+- Chuẩn hóa tên DB về `mysql-wonkers-db` và `mysql-typ-e-db`; cập nhật host/link tương ứng theo compose chung.
 - Quản lý log: khi test chỉ stream log node container; khi start profile cần log toàn bộ container; `log-<profile>` phục vụ debug phụ trợ.
-- Reset DB an toàn: chỉ `docker compose rm -sf mysql-dashboard-db mysql-type-db`, không ảnh hưởng container phụ trợ khác.
+- Reset DB an toàn: chỉ `docker compose rm -sf mysql-wonkers-db mysql-typ-e-db`, không ảnh hưởng container phụ trợ khác.
 - Thứ tự khởi động: node test phải chạy sau khi `typ-e` và `wonkers-db` hoàn tất migrate; dùng `depends_on` với `condition: service_completed_successfully`. Không cần healthcheck.
-- Profiles tách biệt để không boot thừa service cho từng test.
+- Không dùng profiles; điều phối theo lệnh `just` để bật đúng nhóm phụ trợ cho từng test.
 
 ## 🔄 Implementation Plan
 [Don't require running any test]
@@ -50,7 +50,7 @@ Thiết kế và đặt kế hoạch áp dụng profile trong `devtools/docker-c
 
 ```
 devtools/
-├── docker-compose.yaml            # 🚧 TODO - Thêm profiles megazord-events & wonkers-graphql, chuẩn hóa tên DB, depends_on service_completed_successfully cho typ-e/wonkers-db
+├── docker-compose.yaml            # 🚧 TODO - Chuẩn hóa tên DB, depends_on service_completed_successfully cho typ-e/wonkers-db; không dùng profiles
 ├── Justfile                       # 🚧 TODO - Lệnh start-<profile> (up deps + log tất), test-<profile> (reset DB + run node, log node), log-<profile> (tail log phụ trợ)
 │                                   #          Ví dụ: just start megazord-events / test megazord-events / log megazord-events
 └── scripts/                       # 🚧 TODO - Helper shell (nếu cần) để attach log và run node test (docker compose run --rm)
@@ -60,17 +60,17 @@ devtools/
 
 1) Chuẩn hóa compose
 - [ ] Trích dependency từ `megazord-events/ci/docker-compose.yml` và `wonkers-graphql/ci/docker-compose.yml`; xác định service bắt buộc, optional.
-- [ ] Thêm `profiles` vào `devtools/docker-compose.yaml` cho từng nhóm; đặt `depends_on` với `condition: service_completed_successfully` cho `typ-e` và `wonkers-db` (flyway job).
-- [ ] Đổi tên dịch vụ DB trong compose chung thành chuẩn: `mysql-dashboard-db` (thay cho `wonkers-mysql-db`) và `mysql-type-db` (thay cho `mysql-db`); cập nhật toàn bộ `environment`/`links`/host tham chiếu của phụ trợ và node test.
+- [ ] Không dùng `profiles`; đặt `depends_on` với `condition: service_completed_successfully` cho `typ-e` và `wonkers-db` (flyway job).
+- [ ] Đặt tên dịch vụ DB thống nhất: `mysql-wonkers-db` (dashboard) và `mysql-typ-e-db` (tinybots); cập nhật toàn bộ `environment`/`links`/host tham chiếu của phụ trợ và node test.
 - [ ] Không thêm healthcheck; dựa vào completion của flyway để đảm bảo DB sẵn sàng.
 
 2) Chiến lược log & chạy test
-- [ ] `start-<profile>`: `docker compose up -d --profile <profile> <deps>` rồi `docker compose logs -f <deps>` để xem log tất cả phụ trợ khi khởi động (không chạy node).
-- [ ] `test-<profile>`: `docker compose rm -sf <mysqls>` để reset DB, `docker compose up -d --profile <profile> <deps>` nếu chưa chạy, sau đó `docker compose run --rm --no-deps --use-aliases node-<svc>` và chỉ stream log node, lấy exit code test.
-- [ ] `log-<profile>`: `docker compose logs -f <deps>` phục vụ debug phụ trợ khi cần, tách biệt với lệnh test.
+- [ ] `start-<svc>`: `docker compose up -d <deps>` rồi `docker compose logs -f <deps>` để xem log tất cả phụ trợ khi khởi động (không chạy node).
+- [ ] `test-<svc>`: `docker compose rm -sf <mysqls>` để reset DB, sau đó `docker compose up -d --renew-anon-volumes <deps>` để tái tạo sạch volume DB, và cuối cùng `docker compose run --rm --no-deps --use-aliases node-<svc>` để chỉ stream log node, lấy exit code test.
+- [ ] `log-<svc>`: `docker compose logs -f <deps>` phục vụ debug phụ trợ khi cần, tách biệt với lệnh test.
 
 3) Script/Just recipes
-- [ ] Viết recipe `reset-db` (rm -sf mysql-type-db mysql-dashboard-db) trước mỗi test.
+- [ ] Viết recipe `reset-db` (rm -sf mysql-typ-e-db mysql-wonkers-db + up -d --renew-anon-volumes hai DB) trước mỗi test.
 - [ ] Viết recipe `start-<profile>` (up -d phụ trợ + stream log tất cả khi khởi động, không launch node).
 - [ ] Viết recipe `test-<profile>` (reset DB + up deps nếu cần + run node với log node).
 - [ ] Viết recipe `log-<profile>` để xem log phụ trợ khi debug, không chạy test.

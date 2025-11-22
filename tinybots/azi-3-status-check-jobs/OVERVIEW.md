@@ -1,8 +1,8 @@
-# azi-3-status-jobs
+# azi-3-status-check-jobs
 
 ## Overview
 
-`azi-3-status-jobs` is a **stateless toilet activity monitoring service** that tracks resident activity patterns and emits alarms when concerning gaps are detected. This service is designed for pilot testing with minimal infrastructure requirements - no database connections, all configuration via environment variables.
+`azi-3-status-check-jobs` is a **stateless toilet activity monitoring service** that tracks resident activity patterns and emits alarms when concerning gaps are detected. This service is designed for pilot testing with minimal infrastructure requirements - no database connections, all configuration via environment variables.
 
 ## Purpose
 
@@ -20,6 +20,7 @@ Monitor toilet activity for specific residents during configurable daily time wi
 ### Key Components
 
 #### 1. Configuration (`src/config/`)
+
 - **`TOILET_MONITORING_CONFIG`**: Single JSON environment variable containing:
   - Megazord Event Service URL
   - SQS queue URL and AWS region
@@ -27,6 +28,7 @@ Monitor toilet activity for specific residents during configurable daily time wi
   - Array of robot configurations (robotId, timezone, daily window, enabled flag)
 
 #### 2. Domain Models (`src/domain/`)
+
 - **`MonitoringSession`**: Represents one daily monitoring session for a robot
   - One active session per robot at a time
   - Tracks start/end times, subscription ID, current window state
@@ -37,6 +39,7 @@ Monitor toilet activity for specific residents during configurable daily time wi
   - Resets when activity detected
 
 #### 3. Infrastructure (`src/infrastructure/`)
+
 - **`Clock`**: Timezone-aware time abstraction (handles DST transitions)
 - **`MegazordEventClient`**: Wraps `tiny-internal-services` EventService
   - Creates/deletes subscriptions
@@ -44,6 +47,7 @@ Monitor toilet activity for specific residents during configurable daily time wi
 - **`SubscriptionManager`**: Manages Megazord subscription lifecycle
 
 #### 4. Services (`src/services/`)
+
 - **`WindowTracker`**: In-memory state machine for all monitoring sessions
   - Enforces single active session per robot
   - Handles activity events from SQS (deduplication, window resets)
@@ -57,6 +61,7 @@ Monitor toilet activity for specific residents during configurable daily time wi
   - Handles midnight rollovers and mid-day restarts
 
 #### 5. Background Jobs (`src/jobs/`)
+
 All implement `IAsyncModule` for lifecycle management:
 
 - **`MonitorWorker`**: SQS consumer polling status queue
@@ -74,6 +79,7 @@ All implement `IAsyncModule` for lifecycle management:
 ### Multi-Robot Support
 
 From day one, the service supports monitoring **multiple robots concurrently**:
+
 - Each robot has independent timezone and daily monitoring window
 - Each robot gets one active `MonitoringSession` at a time
 - SQS subscription filtering by subscriptionId ensures correct event routing
@@ -134,6 +140,7 @@ From day one, the service supports monitoring **multiple robots concurrently**:
 ```
 
 Set as environment variable:
+
 ```bash
 export TOILET_MONITORING_CONFIG='{"megazordEventServiceUrl":"http://...","robots":[...]}'
 ```
@@ -153,6 +160,7 @@ export TOILET_MONITORING_CONFIG='{"megazordEventServiceUrl":"http://...","robots
 **Current design**: Single instance only (stateful in-memory).
 
 **Future options**:
+
 - Use Redis for shared state across multiple instances
 - Add database persistence for session state
 - Implement leader election for scheduling (only one instance creates sessions)
@@ -167,6 +175,7 @@ export TOILET_MONITORING_CONFIG='{"megazordEventServiceUrl":"http://...","robots
 ### Logging
 
 Structured JSON logging with:
+
 - `robotId`, `sessionId`, `windowNumber` in all relevant logs
 - Key events: session created, subscription created, window reset, alarm emitted, session completed
 
@@ -182,9 +191,10 @@ Structured JSON logging with:
 
 ### NO_TOILET_ACTIVITY_ALARM
 
-- **Producer**: azi-3-status-jobs
+- **Producer**: azi-3-status-check-jobs
 - **Trigger**: No TOILET_ACTIVITY events received in 2-hour window
 - **Payload**:
+
   ```json
   {
     "sessionId": "uuid",
@@ -194,6 +204,7 @@ Structured JSON logging with:
     "durationMinutes": 120
   }
   ```
+
 - **Level**: 30 (WARNING)
 - **hasTrigger**: true
 - **Consumers**: Dashboards, notification triggers, care team alerts
@@ -201,12 +212,14 @@ Structured JSON logging with:
 ## Testing Strategy
 
 ### Unit Tests
+
 - `WindowTracker`: Window math, DST handling, single-session-per-robot enforcement
 - `AlarmEmitter`: Deduplication logic
 - `Clock`: Timezone conversions, DST transitions
 - `MonitoringWindow`: Window reset logic, expiration checks
 
 ### Integration Tests
+
 - Mock Megazord EventService using `tiny-internal-services-mocks`
 - Mock SQS using in-memory queue
 - Scenarios:
@@ -217,6 +230,7 @@ Structured JSON logging with:
   - Duplicate events
 
 ### Manual Validation
+
 1. Set `TOILET_MONITORING_CONFIG` env var
 2. Start service
 3. Inject `TOILET_ACTIVITY` events via Megazord API
@@ -227,14 +241,17 @@ Structured JSON logging with:
 ## Deployment
 
 ### Docker
+
 Multi-stage build, Node.js base image.
 
 ### Environment Variables
+
 - `TOILET_MONITORING_CONFIG` (required): JSON config string
 - `NODE_ENV`: production | development
 - `PORT`: HTTP server port (default 3000)
 
 ### Dependencies
+
 - Megazord Event Service (HTTP)
 - AWS SQS (status queue)
 - No database required
@@ -274,6 +291,6 @@ Multi-stage build, Node.js base image.
 
 ## Related Documentation
 
-- Implementation plan: `devdocs/tinybots/azi-3-status-jobs/2025-11-20-PROD594-toilet-activity-monitoring.md`
+- Implementation plan: `devdocs/tinybots/azi-3-status-check-jobs/2025-11-20-PROD594-toilet-activity-monitoring.md`
 - Megazord event schema: `megazord-events/schemas/events/no_toilet_activity_alarm.json`
 - Platform standards: `devdocs/tinybots/_general/tiny-backend-tools/OVERVIEW.md`

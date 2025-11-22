@@ -1,66 +1,56 @@
+> **Branch:** develop
+> **Last Commit:** bcb16de (Updated from n/a)
+> **Last Updated:** Tue Nov 11 04:56:16 2025 +0000
+
 # m-o-triggers Overview
 
-## Purpose & Scope
+## TL;DR
+- Authenticated trigger management API and scheduler for TinyBots robots, built on `TinyDatabaseAppAuthenticated` with Awilix wiring.
+- Persists `event_trigger` and `event_trigger_setting` rows in MySQL; caches event schemas and settings to keep scheduling fast.
+- Cron-driven scheduler locks due triggers, enforces day/time/concurrency windows, and delivers payloads to robot-specific SQS queues.
+- Kong headers and permission checks guard robot reads and admin setting updates; permission service calls flow through `PermissionAPIProvider`.
 
-- Hosts the triggers HTTP API and scheduler on top of `TinyDatabaseAppAuthenticated`, wiring Kong authentication, request validators, and Awilix dependency registration inside `createApp`/`App` (`src/cmd/app/main.ts:50`). This entrypoint is what other Tinybots services hit when they need to manage robot trigger settings or fetch trigger state.
-- Owns the full trigger lifecycle: create internal triggers, lock and poll `event_trigger` rows, evaluate scheduling windows, and enqueue robot-specific jobs on SQS via the collaboration between `EventTriggersService`, `TriggerSchedulerParser`, and `TriggerSchedulerService` (`src/services/EventTriggersService.ts:43`, `src/services/TriggerSchedulerParser.ts:44`, `src/services/TriggerSchedulersService.ts:120`).
-- Keeps scheduling decisions fast and safe by caching event schemas/settings plus refreshing them on Cron schedules (`src/services/EventSchemasService.ts:16`, `src/services/EventTriggerSettingsCacheService.ts:23`). Day-of-week, time-of-day, validity, and concurrency rules are enforced before a trigger is accepted or executed (`src/services/TriggerSchedulerParser.ts:183`).
+## Recent Changes Log
+- Baseline rewrite: prior overview lacked metadata; document regenerated against HEAD `bcb16de` with current routes, scheduler rules, and config defaults.
 
-## HTTP Controllers
+## Repo Purpose & Bounded Context
+- Exposes APIs for creating triggers from upstream events, reading robot-scoped trigger status, and configuring default/robot-specific trigger rules.
+- Acts as the orchestration layer between `megazord-events` (incoming events), MySQL trigger tables, and downstream robot queues (SQS).
+- Keeps trigger execution safe by validating schedule windows, concurrency, validity TTL, and day-of-week constraints before enqueueing work.
 
-### `InternalEventTriggersController`
+## Project Structure
+- `src/cmd/app/main.ts` extends `TinyDatabaseAppAuthenticated`; loads configs via `loadConfigValue`, registers DI container entries, middleware, and routes; starts HTTP server and cron/timer infrastructure.
+- `src/controllers/*` provide the HTTP layer: internal trigger creation, robot trigger reads, and admin trigger-setting upserts; `index.ts` exports for DI registration.
+- `src/services/*` houses core logic: event schema cache (cron refreshed), trigger settings TTL cache, trigger lifecycle orchestration, scheduler/parser, and SQS dispatch.
+- `src/repositories/*` encapsulate prepared queries and transactions for `event_schema`, `event_trigger_setting`, and `event_trigger` tables.
+- `src/models/*` contains config DTOs (App, Scheduler, Cache, SQS, Polling, Permissions), request DTOs, and domain models with (de)serializers (day-of-week, HH:mm).
+- `config/*.json` defines defaults and env overrides (port 8080, cron expressions, queue base URL, cache TTL, DB connection, permission service address).
+- `test/**/*` includes controller integration tests, repository integration/unit tests, service logic tests, and DB fixture helpers via `tiny-testing`.
 
- Exposes `POST /internal/v1/triggers/triggers` for trusted services to create triggers after DTO validation, delegating all logic to the service layer (`src/controllers/InternalEvenTriggersController.ts:6`, `src/cmd/app/main.ts:247`). Integration tests cover schedule recalculation scenarios (weekday gaps, robot-specific defaults) in `test/controllers/InternalEventTriggersControllerIT.ts:1`.
+## Controllers & Public Surface
+- `POST /internal/v1/triggers/triggers` (InternalEventTriggersController) — body validated against `CreateTriggerDto`; trusted internal caller creates a trigger that is immediately scheduled if eligible.
+- `GET /v1/triggers/triggers/:triggerId` (EventTriggersController) — Kong header validation + robot validator + path DTO; returns trigger only when owned by the logged-in robot and not expired/failed.
+- `PUT /v1/triggers/settings` (EventTriggerSettingsController) — Kong header + admin validator + permission `M_O_TRIGGERS_SETTING_WRITE_ALL` + `UpsertTriggerSettingDto` body; upserts default or robot override settings with time-of-day and concurrency rules.
+- Error handling is centralized through `errorMiddleware`; request/response serialization handled via `serializerMiddleware`; context logging/callRef attached by `contextMiddleware`.
 
-#### Create Trigger Flow
+## Core Services & Logic
+- **EventTriggersService**: `create` runs `TriggerSchedulerParser.pre` to choose default setting and compute `expectedExecutedAt`, writes the trigger, then asynchronously schedules it; `getByIdAndLoggedInRobot` hides foreign/failed/expired triggers; `upsertSetting` resolves event schema by name and writes settings.
+- **TriggerSchedulerParser**: `pre` enforces presence of default setting and computes first allowed slot (time window + allowed days + reschedulable + max validity); `post` decides if execution should start now/next cycle based on `expectedExecutedAt`; `execute` wraps a transactional concurrency check (`countExecutedInWindowTimeTransaction`) before invoking executor, rejecting with REJECTED if over limits.
+- **TriggerSchedulerService**: Maintains `TimerPool` capped by `scheduler.maxTimers`; cron `acquireTriggerCron` locks READY triggers into PICKED_UP, preloads settings into cache, and calls `prepare`; `releaseTriggerCron` recovers stuck triggers older than `releaseTriggerWindowMs`; `prepare` loads settings, validates via parser, and either executes immediately or schedules; `execute` sends SQS payloads to `${baseRobotQueueAddress}${robotId}` and unlocks to EXECUTED.
+- **EventTriggerSettingsCacheService**: TTL cache (size/ttl from `cache` config) for settings; supports bulk preloading of locked trigger setting IDs; falls back to DB lookup and throws NotFound for missing IDs.
+- **EventSchemasService**: In-memory cache of active `event_schema` rows; cron (from `pollingConfig.dbPolling`) refreshes updated schemas, removes deactivated ones, and indexes by name for UpsertTriggerSetting requests.
 
-1. Nhận request từ `megazord-events` với payload
+## External Dependencies & Cross-Service Contracts
+- **MySQL**: primary store for event schemas, trigger settings, and triggers; prepared statements handled in repositories; DB connection limit increased by 3 in `createApp` to reserve cache connections.
+- **AWS SQS**: messages pushed via `SQS.ContextSQS`; queue name rooted at `scheduler.baseRobotQueueAddress`; message includes `_appName`, robotId, and trigger payload with access link `/v1/triggers/triggers/:id`.
+- **Kong / Identity**: Kong headers validated for robot/admin flows; `PermissionAPIProvider` calls external permission service at `permissionsProvider.address`.
+- **Cron/Timers**: `cron` expressions from config drive acquisition/cleanup; `TimerPool` ensures max concurrent scheduled timers; `maxTriggerTTL` (default 300000ms) used to expire EXECUTED triggers on robot reads.
+- **Caching & Utilities**: TTL cache (@isaacs/ttlcache), dayjs/datejs for time math, Awilix for DI, Winston for structured logging.
+- **Config Overrides**: `config/custom-environment-variables.json` maps env vars (e.g., `BASE_ROBOT_QUEUE_ADDRESS`, AWS creds, `DB_RW_HOST`, `WONKERS_USER_ACCOUNT_ADDRESS`) for deployments.
 
-   ```typescript
-   const trigger: CreateTriggerDto = {
-      outgoingEventId: outgoingEvent.id,
-      robotId: incomingEvent.robotId,
-      level: incomingEvent.level,
-      eventTypeId: incomingEvent.eventTypeId
-    }
-
-    ```
-
-2. Từ request nó sẽ `pre` check if it can execute. If `NO` change status to `REJECTED`, If `YES` we will care about `expectedExecutedAt` (`src/services/TriggerSchedulerParser.ts`)
-3. Tạo 1 `event_trigger` mới lưu vào database để tracking sau này.
-4. Sẽ làm một số bước check ví dụ như `expectedExecutedAt`,`maxConcurrentTriggers`... rồi cuối cùng cũng như `megazord-events` sẽ sử dụng SQS để publish vào robot (`TriggerSchedulerService.execute`)
-
-### `EventTriggersController`
-
- Powers `GET /v1/triggers/triggers/:triggerId`, authenticates robots via Kong headers, and only returns triggers that belong to the logged-in robot and have not expired/failed (`src/controllers/EventTriggersController.ts:7`, `src/cmd/app/main.ts:253`). The IT suite asserts robot scoping, TTL-based hiding, and schedule constraints in `test/controllers/EventTriggersControllerIT.ts:1`.
-
-### `EventTriggerSettingsController`
-
- Handles `PUT /v1/triggers/settings` for admins with `M_O_TRIGGERS_SETTING_WRITE_ALL`, parsing human-friendly strings (HH:mm, `10m`, weekdays) via `UpsertTriggerSettingDto` before upserting defaults/robot overrides (`src/controllers/EventTriggerSettingsController.ts:6`, `src/models/dtos/UpsertTriggerSettingDto.ts:1`, `src/cmd/app/main.ts:261`). Validation and DB persistence paths are exercised in `test/controllers/EventTriggerSettingControllerIT.ts:1`.
-
-## Core Services & Flow
-
-- **EventTriggersService** orchestrates trigger creation, robot-scoped retrieval, TTL-based failure handling, and trigger-setting upserts (`src/services/EventTriggersService.ts:43`). It immediately schedules freshly created triggers by loading their settings from cache and asking the scheduler to prepare/execute them (`src/services/EventTriggersService.ts:136`). Robot-facing reads ensure the trigger belongs to the caller and is neither failed nor expired beyond `maxTriggerTTL` (`src/services/EventTriggersService.ts:84`, `src/services/EventTriggersService.ts:203`).
-- **TriggerSchedulerService** is the heart of execution: it uses a `TimerPool`, Cron jobs, and SQS producers to acquire ready triggers, preload their settings, run parser validations, enqueue timers, and finally emit robot-specific messages to `${baseRobotQueueAddress}${robotId}` (`src/services/TriggerSchedulersService.ts:120`, `src/services/TriggerSchedulersService.ts:146`, `src/services/TriggerSchedulersService.ts:287`, `src/services/TriggerSchedulersService.ts:371`, `src/services/TriggerSchedulersService.ts:424`). It also unlocks stuck triggers with periodic cleanup jobs.
-- **TriggerSchedulerParser** encapsulates the rules engine. `pre` finds the applicable default or robot-specific setting and computes the first allowed execution slot; `post`/`execute` decide whether the trigger can start now/next cycle and enforce max concurrency windows via transactional counts (`src/services/TriggerSchedulerParser.ts:44`, `src/services/TriggerSchedulerParser.ts:95`, `src/services/TriggerSchedulerParser.ts:183`). Day-of-week rescheduling and validity checks live in `getExpectedExecutedTime` and helper functions (`src/services/TriggerSchedulerParser.ts:241`).
-- **EventTriggerSettingsCacheService** wraps a TTL cache to reduce DB reads when the scheduler needs settings. It lazily loads or bulk preloads setting IDs pulled from locked triggers so scheduling remains cheap (`src/services/EventTriggerSettingsCacheService.ts:23`, `src/services/EventTriggerSettingsCacheService.ts:36`, `src/services/EventTriggerSettingsCacheService.ts:55`).
-- **EventSchemasService** maintains an in-memory map of `event_schema` rows, refreshing it on a Cron interval so setting upserts can resolve `eventName` → `eventTypeId` without DB fan-out (`src/services/EventSchemasService.ts:16`, `src/services/EventSchemasService.ts:50`).
-
-## Data & Persistence
-
-- `EventTriggersRepository` encapsulates all SQL for `event_trigger` and `event_trigger_setting`: creating references, stamping defaults, locking/unlocking rows, recovering orphans, counting executed triggers for concurrency checks, and updating statuses atomically via prepared statements and transactions (`src/repositories/EventTriggerRepository.ts:12`, `src/repositories/EventTriggerRepository.ts:139`, `src/repositories/EventTriggerRepository.ts:351`, `src/repositories/EventTriggerRepository.ts:527`). The scheduler relies on these methods to safely acquire and execute work.
-- `EventSchemasRepository` holds a dedicated MySQL connection plus a prepared query to fetch schemas updated since a timestamp, feeding the schema cache (`src/repositories/EventSchemasRepository.ts:29`).
-- Domain models under `src/models/domains` provide serialization/validation helpers, including day-of-week (de)serialization and HH:mm formatting for API responses (`src/models/domains/EventTriggerDomain.ts:1`).
-
-## External & Neighboring Systems
-
-- The service leans heavily on the shared `tiny-backend-tools` repo for Express scaffolding, context/callRef propagation, Cron utilities, SQS producers, repository base classes, and permission validators (`src/cmd/app/main.ts:1`). `PermissionAPIProvider` lets it call the centralized permissions service using configuration loaded at boot (`src/cmd/app/main.ts:149`).
-- Kong (`kong-js`) supplies robot/dashboard user identities for request validation and SSO headers (`src/cmd/app/main.ts:4`, `src/controllers/EventTriggersController.ts:2`).
-- Trigger execution pushes messages onto AWS SQS queues whose names are derived from the robot ID; the queue address prefix and limits come from the scheduler config (`src/services/TriggerSchedulersService.ts:146`, `src/models/SchedulerConfig.ts:1`).
-- MySQL (the Tinybots operational database) stores `event_schema`, `event_trigger_setting`, and `event_trigger` tables accessed through the repositories’ SQL (`src/repositories/EventTriggerRepository.ts:147`). Integration tests seed/clean those tables via helpers built on the shared `tiny-testing` repo (`test/helpers/DbSetup.ts:1`).
-
-## Tests & How To Explore Behavior
-
-- The controller IT suites demonstrate end-to-end flows against a real DB: fetching triggers with robot scoping (`test/controllers/EventTriggersControllerIT.ts:1`), admin upserts and validation failures (`test/controllers/EventTriggerSettingControllerIT.ts:1`), and rescheduling behavior across weekdays/time windows (`test/controllers/InternalEventTriggersControllerIT.ts:1`).
-- Service-level specs under `test/services` cover caching, schema refresh, scheduler polling, and parser edge cases so you can see expected behavior without spinning up external dependencies.
-- `test/helpers/DbSetup.ts:1` shows how the tests talk to the shared Tinybots schema (robots, subscriptions, incoming/outgoing events), which is useful when you need to seed additional fixtures locally.
+## Testing & Quality Gates
+- Test runner `yarn test` uses mocha + ts-node with nyc coverage; coverage gates: 95% statements/functions/lines, 70% branches; formatting enforced via eslint + dprint (`yarn lint:format`).
+- **Controllers IT**: `test/controllers/*IT.ts` exercise request validation, permissions, robot scoping, and scheduling/rescheduling behavior against real DB fixtures.
+- **Services**: `test/services/*Test.ts` covers schema cache refresh, settings cache behavior, scheduler poll/execute, parser concurrency/validity logic, and trigger service expiry handling.
+- **Repositories**: `test/repositories/*` verify locking, recovery, setting writes/default disabling, and concurrency counting; includes both integration and unit variants.
+- **Fixtures**: `test/helpers/DbSetup.ts` seeds/cleans `event_schema`, `event_trigger`, `event_trigger_setting` tables using shared `tiny-testing` helpers; adjust when adding new tables/columns.
