@@ -31,6 +31,7 @@ Phân tích dấu chân của "cá mập" (shark - nhà đầu tư lớn) và "c
 ## 📐 Architecture Overview
 
 ### Class Hierarchy
+
 ```
 BaseFeatureCalculator (Abstract)
     ↓
@@ -40,6 +41,7 @@ StockDataCollector
 ```
 
 ### Data Flow
+
 ```
 Supabase (Raw Data)
     ↓
@@ -64,6 +66,7 @@ pd.DataFrame (Features indexed by time)
 ### 1. Phân loại Shark/Sheep theo Threshold
 
 **Input**: Trade value (tính bằng raw units)
+
 ```python
 trade_value_raw = price × volume  # đơn vị: đồng (VNĐ)
 ```
@@ -126,6 +129,7 @@ value_in_millions = trade_value_raw / 1_000_000  # convert to millions
 ## 🏗️ Implementation Details
 
 ### File Structure
+
 ```
 packages/stock/metan/stock/trading/domain/feature/
 ├── calculator/
@@ -150,6 +154,7 @@ packages/stock/metan/stock/trading/domain/feature/
 **Fail-Fast Strategy**: Không có silent fallback, mọi inconsistency đều raise ValueError
 
 **Example Error Message**:
+
 ```python
 raise ValueError(
     "Insufficient prior trading days for 5D baseline calculation. "
@@ -168,6 +173,7 @@ raise ValueError(
 
 ### JSON data
 Read `packages/stock/metan/stock/trading/domain/feature/persistor/intraday/intraday_symbol_feature_persistor.py` to understand how to persist features to the database.
+
 ```json
 {
   "id": 1408,
@@ -182,31 +188,35 @@ Read `packages/stock/metan/stock/trading/domain/feature/persistor/intraday/intra
   "value": 4894,
   "features": {
     "whale_footprint": {
-      "shark450_buy_value": 2024,
-      "shark900_buy_value": 1272,
-      "sheep450_buy_value": 655,
-      "sheep900_buy_value": 1407,
-      "shark450_sell_value": 855,
-      "shark900_sell_value": 0,
-      "sheep450_sell_value": 1280,
-      "sheep900_sell_value": 2135,
-      "shark450_buy_avg_price": 23811,
-      "shark900_buy_avg_price": 24000,
-      "sheep450_buy_avg_price": 23738,
-      "sheep900_buy_avg_price": 23611,
-      "shark450_sell_avg_price": 23700,
-      "shark900_sell_avg_price": 23400,
-      "sheep450_sell_avg_price": 23709,
-      "sheep900_sell_avg_price": 23705,
-      "shark450_urgency_spread": 0.6521,
-      "shark450_buy_ratio_5d_pc": 0.2174,
-      "shark900_buy_ratio_5d_pc": 0.1366,
-      "sheep450_buy_ratio_5d_pc": 0.0703,
-      "sheep900_buy_ratio_5d_pc": 0.1511,
-      "shark450_sell_ratio_5d_pc": 0.0918,
-      "shark900_sell_ratio_5d_pc": 0,
-      "sheep450_sell_ratio_5d_pc": 0.1375,
-      "sheep900_sell_ratio_5d_pc": 0.2293
+      "date" : "2025-11-03",
+      "candle_volume" : 172000,
+      "candle_value" : 4311.0,
+      "shark450_buy_value" : 480.0,
+      "sheep450_buy_value" : 2517.0,
+      "shark450_sell_value" : 0.0,
+      "sheep450_sell_value" : 1282.0,
+      "shark900_buy_value" : 0.0,
+      "sheep900_buy_value" : 2997.0,
+      "shark900_sell_value" : 0.0,
+      "sheep900_sell_value" : 1282.0,
+      "shark450_buy_avg_price" : 25000,
+      "sheep450_buy_avg_price" : 25073,
+      "shark450_sell_avg_price" : 26000,
+      "sheep450_sell_avg_price" : 25085,
+      "shark900_buy_avg_price" : 26000,
+      "sheep900_buy_avg_price" : 25061,
+      "shark900_sell_avg_price" : 26000,
+      "sheep900_sell_avg_price" : 25085,
+      "shark450_buy_ratio_5d_pc" : 0.0713,
+      "sheep450_buy_ratio_5d_pc" : 0.3741,
+      "shark450_sell_ratio_5d_pc" : 0.0,
+      "sheep450_sell_ratio_5d_pc" : 0.1905,
+      "shark900_buy_ratio_5d_pc" : 0.0,
+      "sheep900_buy_ratio_5d_pc" : 0.4455,
+      "shark900_sell_ratio_5d_pc" : 0.0,
+      "sheep900_sell_ratio_5d_pc" : 0.1905,
+      "shark450_urgency_spread" : -3.989,
+      "shark900_urgency_spread" : 0.0
     }
   },
   "date": "2025-10-06"
@@ -214,6 +224,7 @@ Read `packages/stock/metan/stock/trading/domain/feature/persistor/intraday/intra
 ```
 
 ### Column Naming Pattern
+
 ```
 {category}{threshold}_{side}_{metric}
 
