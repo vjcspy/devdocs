@@ -1,166 +1,128 @@
-# Metan Stock Package Overview
+# Overview
+>
+> **Branch:** projects/cli  
+> **Last Commit:** 15a8728  
+> **Last Updated:** Tue Nov 18 22:39:24 2025 +0700
 
-**TL;DR**: Provides Supabase-backed ingestion of Vietnamese equity ticks/prices, normalizes them against TCBS intraday candles, and produces per-candle "whale footprint" features that get persisted back into Supabase for downstream traders and bots.
+## Stock Package Overview (TL;DR)
 
-## Repo Purpose & Interactions
-The `packages/stock` module is the shared data/feature layer for any AI agent that needs reliable intra-day Vietnamese stock information. It pulls authoritative tick and daily price history from Supabase, fetches interval candles from the third-party TCBS API, replays ticks into aligned `TickCandle`s, computes feature packs (currently "whale footprint"), and upserts those enriched candles back into Supabase. Other workspace packages (CLI/services) call into this module instead of duplicating ingestion logic.
+- Stock workspace focuses on ingesting intraday ticks/prices, normalizing them into candle shapes, and computing trading features (currently Whale Footprint) for persistence to Supabase.
+- Data comes from two places: TCBS REST for raw candles and Supabase tables for ticks, prices, stock metadata, and configuration.
+- Core flows live in `packages/stock/metan/stock`: `info` prepares market data, `trading` turns that data into features, and `testbed` offers quick scripts to sanity-check outputs.
 
-| System | Direction | Protocol & Endpoint | Auth | Timeout/Retry | Entry Points |
-| --- | --- | --- | --- | --- | --- |
-| Supabase – `stock` table | Read | Supabase Python client → PostgREST `table("stock").select("*")` | `APP_SUPABASE_URL` + `APP_SUPABASE_KEY` (via `metan.supabase`) | Default client timeout, no retries configured | `StockDataCollector.stock()` fetches symbol metadata |
-| Supabase – `stock_info_ticks` | Read | `.table("stock_info_ticks").select().eq().gte().lte()` | Same as above | Default timeout, no retries | `StockDataCollector.ticks()` hydrates `Tick` + `TickAction` |
-| Supabase – `stock_info_prices` | Read | `.table("stock_info_prices").select()` (count + fetch) | Same | Default timeout, no retries | `StockDataCollector.prices()` loads OHLCV rows |
-| Supabase – `stock_info_stocks` | Read | `.table("stock_info_stocks")` | Same | Default timeout | `tests/.../test_candles_by_date.py` validates expected buckets using exchange info |
-| Supabase – `stock_trading_feature_candles` | Write | `.table(...).upsert(chunk, on_conflict="symbol,time")` | Same | Default timeout, chunked batches of 500, no retry/backoff | `IntradaySymbolFeaturePersistor._persist_rows()` persists feature JSON |
-| TCBS API `https://apiextaws.tcbs.com.vn/stock-insight/v2/stock/bars` | Read | HTTPS GET `ticker`, `type=stock`, `resolution`, `to`, `countBack=300` | Bearer `tcbs_token` from env via `stock_info_config` | `requests.get(..., timeout=30)`, no retry; manual pagination using `to` cursor | `TcbsSymbolCandleFetcher.fetch()` builds price candles that define per-day intraday slots |
+## Repo Purpose & Bounded Context
 
-## Inventory
-```text
+- Part of `metan-workspace` (see `pyproject.toml` workspace members), this package (`metan-stock`) delivers stock-specific data collection and feature generation used by trading analytics and derivative products (e.g., VN30F1M aggregation described in feature doc).
+- Bounded to intraday equities data (Vietnam exchanges HSX/HNX) and downstream feature persistence; relies on other workspace packages for logging (`metan-core`) and database connectivity (`metan-supabase`).
+
+## Project Structure
+```
 packages/stock/
-├── pyproject.toml                 # Hatch build metadata; declares only the minimal runtime deps (metan-supabase, pendulum)
-├── Makefile & scripts/*.sh        # Thin wrappers that proxy to Poetry for install/lint/test/format
-├── metan/stock/
-│   ├── info/
-│   │   ├── configuration.py      # Loads the TCBS bearer token via BaseEnvSettings
-│   │   └── domain/
-│   │       ├── candle/models.py  # IntradayInterval enum, TickCandle & PriceCandle schemas
-│   │       ├── price/models.py   # Daily OHLCV (Price) model
-│   │       ├── stock/models.py   # Reference stock metadata schema
-│   │       ├── tick/models.py    # TickAction + Tick models (side B/S/Undefined)
-│   │       └── stock_data_collector/
-│   │           ├── stock_data_collector.py
-│   │           │   # Core data access layer: fetches Supabase ticks/prices/stock + TCBS candles, caches results, builds TickCandle sets
-│   │           ├── constants.py  # Expected 5-minute candle counts per exchange (consumed by tests)
-│   │           ├── abstract.py   # CandleFetcher base class (interval mapping, token helpers)
-│   │           └── external/tcbs/
-│   │               ├── tcbs_symbol_candle_fetcher.py  # Calls TCBS bars API and sanitizes timestamps
-│   │               └── tcbs_contract_candle_fetcher.py # Placeholder for derivative contracts (not implemented)
-│   ├── trading/
-│   │   └── domain/feature/
-│   │       ├── calculator/base_feature_calculator.py # Base pandas pipeline contract
-│   │       ├── calculator/common/base.py             # Shared aggregation helpers
-│   │       ├── calculator/whale_footprint/*.py       # Value, avg price, ratio, urgency feature blocks
-│   │       ├── models.py                             # `FeatureBaseCandleRow`
-│   │       └── persistor/intraday/intraday_symbol_feature_persistor.py # Runs calculators + upserts into Supabase
-│   └── testbed/
-│       ├── compare_candle.py       # Manual script to diff TCBS candle timestamps across symbols
-│       └── calculate_feature.py    # Quick WhaleFootprint runner for manual inspection
-├── tests/metan/stock/info/domain/stock_data_collector/test_candles_by_date.py
-│       # Live integration tests hitting Supabase + TCBS to assert candle ordering/counts via StockInfoContains constants
-└── doc/.gitkeep                    # Placeholder for future docs
+├─ pyproject.toml                # package metadata (deps: metan-supabase, pendulum)
+├─ metan/stock/
+│  ├─ main.py                    # CLI stub
+│  ├─ common/helper/config_data.py           # fetch intraday timepoint configs from Supabase
+│  ├─ info/
+│  │  ├─ configuration.py        # env settings (tcbs_token)
+│  │  ├─ helper/intraday_timepoints_generator.py   # builds & persists intraday schedule configs via TCBS+Supabase
+│  │  ├─ domain/
+│  │  │  ├─ candle/models.py     # IntradayInterval enum, TickCandle, PriceCandle
+│  │  │  ├─ price/models.py      # daily Price schema
+│  │  │  ├─ tick/models.py       # Tick & TickAction
+│  │  │  ├─ stock/models.py      # Stock metadata model
+│  │  │  └─ stock_data_collector/
+│  │  │     ├─ abstract.py       # CandleFetcher base with interval/time helpers
+│  │  │     ├─ constants.py      # expected candle counts per exchange
+│  │  │     ├─ stock_data_collector.py   # central data loader/cacher
+│  │  │     └─ external/tcbs/...
+│  │  │        ├─ tcbs_symbol_candle_fetcher.py    # REST client for TCBS bars endpoint
+│  │  │        └─ tcbs_contract_candle_fetcher.py  # placeholder
+│  ├─ trading/
+│  │  ├─ domain/feature/
+│  │  │  ├─ calculator/base_feature_calculator.py   # abstract calculator contract
+│  │  │  ├─ calculator/common/base.py               # shared validation & aggregation helpers
+│  │  │  ├─ calculator/whale_footprint/*.py         # feature logic (values, ratios, urgency, averages)
+│  │  │  ├─ models.py                               # FeatureBaseCandleRow dataclass
+│  │  │  └─ persistor/intraday/intraday_symbol_feature_persistor.py  # merges features + upserts to Supabase
+│  └─ testbed/                                      # quick-run scripts (feature calc, candle compare)
+└─ tests/metan/stock/info/domain/stock_data_collector/test_candles_by_date.py
 ```
 
-## Data & Integration Map
+## Core Services & Logic
+### StockDataCollector (info.domain.stock_data_collector.stock_data_collector)
 
-| Entity | Source | Fields & Shape | Relationships / Notes |
-| --- | --- | --- | --- |
-| `Stock` (`stock/models.py`) | Supabase `stock` | `code`, `exchange`, industry codes, historic metadata | Used to determine exchange-specific expectations (e.g., expected candle counts) |
-| `Price` (`price/models.py`) | Supabase `stock_info_prices` | Daily OHLC, `volume`, `value`, foreign flow metrics | Sorted chronologically; `_effective_start_date()` counts rows in-range, then fetches through `end_date` plus five extra trading days and maps Supabase `dealVolume` → `volume` |
-| `Tick` & `TickAction` (`tick/models.py`) | Supabase `stock_info_ticks` | `meta` array of `[timestamp, volume, price, side]` entries; `side` filtered to `B/S` in practice | Feed for intraday buckets/whale classification; fetch uses the same `_effective_start_date()` window so ticks exist for the five historical days needed for rolling baselines |
-| `PriceCandle` (`candle/models.py`) | TCBS API | 5-minute or hourly OHLCV per `time` (ISO) | Defines authoritative intraday slots per trading day; sanitized to skip lunch and after-hours trades |
-| `TickCandle` (`candle/models.py`) | Derived | Combines aggregated tick actions with aligned TCBS time slots; stores `value` already scaled to millions | Downstream calculators treat this as the base OHLCV per interval |
-| `FeatureBaseCandleRow` (`trading/.../models.py`) | Derived | Flattened `TickCandle` + `date/time` | Carrier row sorted by ISO `time` before feature namespaces are merged and persisted |
+- Loads per-symbol data between `start_date` and `end_date` at a given `IntradayInterval`.
+- Sources:
+  - Supabase `stock_info_stocks` → `Stock` model (exchange drives schedule selection).
+  - Supabase `stock_info_prices` → `Price` list (includes OHLC and foreign flow fields).
+  - Supabase `stock_info_ticks` → per-day `TickAction` lists, filtered to sides B/S, timestamps normalized to ISO UTC.
+  - TCBS REST (`TcbsSymbolCandleFetcher`) → intraday `PriceCandle` series, filtered to trading session hours.
+- Caches results per symbol/date/interval to reduce database/API calls.
+- Produces:
+  - `tick_candles_by_date()`: buckets tick actions into OHLCV candles per schedule slot; fails fast if gaps occur.
+  - `price_candles_by_date()`: TCBS price candles grouped per trading date with strict time validation.
 
-**Data flow**
-1. `StockDataCollector` pulls Supabase ticks (per-day buckets keyed by `date`), optional daily prices, and TCBS interval candles for the same window/interval, always expanding the request window with `_effective_start_date()` so both ticks and prices include the five prior trading days required by downstream baselines. All results are cached per symbol+date/interval key to avoid repeated requests during feature runs.
-2. `tick_candles_by_date()` replays tick actions into `interval` buckets, computes OHLC + traded value per bucket (stored in millions), and enforces the TCBS candle grid as the canonical schedule—every TCBS slot must have a corresponding tick aggregate or the collector raises immediately.
-3. Feature calculators consume those grouped candles to compute analytics (volume/value splits above specific VND thresholds, rolling baselines, etc.).
-4. `IntradaySymbolFeaturePersistor` merges per-candle features into JSON namespaces and upserts them into Supabase so other services can stream/query them.
+### IntradayTimepointsGenerator (info.helper.intraday_timepoints_generator)
 
+- Builds trading session timepoints for an exchange/interval by fetching TCBS candles for a symbol/date and extracting HH:MM values.
+- Persists `{key: INTRADAY_CANDLE_TIMEPOINTS_<EXCHANGE>_<INTERVAL>, value: {...}}` into Supabase `stock_common_configuration` via upsert.
 
+### Feature Calculators (trading.domain.feature)
 
-### 🔑 Key Concepts
+- `WhaleFootprintFeatureCalculator`: consumes tick candles + price baselines; classifies trades into shark/sheep across thresholds (default 450/900 million VND), tracks cumulative avg prices, computes per-candle value ratios vs 5D baseline, and urgency spreads using VWAP.
+- Shared helpers enforce:
+  - Consistent candle counts per day (`validate_and_get_base_candle_count_strict`).
+  - Day-set equality between prices and tick candles.
+  - Monetary units in millions; prices/volumes in raw units.
 
-### 1. Phân loại Shark/Sheep theo Threshold
+### Persistence (trading.domain.feature.persistor.intraday_symbol_feature_persistor)
 
-**Input**: Trade value (tính bằng raw units)
+- Builds base candle rows from `tick_candles_by_date`.
+- Runs feature calculators (currently only Whale Footprint) and merges namespace-scoped feature frames.
+- Upserts to Supabase table `stock_trading_feature_candles` with unique `(symbol, time)` constraint; logs written row count.
 
-```python
-trade_value_raw = price × volume  # đơn vị: đồng (VNĐ)
-```
+### Testbed Scripts
 
-**Classification Logic** (per threshold T):
-
-- T được định nghĩa trong **millions** (e.g., 450 = 450 triệu VNĐ)
-- So sánh: `trade_value_raw >= T * 1_000_000`
-  - ✅ → **shark**: Giao dịch lớn (nhà đầu tư tổ chức)
-  - ❌ → **sheep**: Giao dịch nhỏ (nhà đầu tư cá nhân)
-
-**Default Thresholds**: `[450, 900]` (450M và 900M VNĐ)
-
-### 2. Sides (Hướng Giao Dịch)
-
-Từ `TickAction.side`:
-
-- `'B'` (Buy): Lệnh MUA
-- `'S'` (Sell): Lệnh BÁN
-- `'Undefined'`: Phiên ATO/ATC (KHÔNG tính trong whale footprint)
-
-### 3. Point-in-Time vs Accumulative vs Moving-Window
-
-**Naming Convention trong Code**:
-
-| Loại              | Prefix     | Ví dụ                      | Mô tả                                            |
-| ----------------- | ---------- | -------------------------- | ------------------------------------------------ |
-| **Point-in-time** | _(none)_   | `high`, `low`, `close`     | Giá trị tại thời điểm trong candle               |
-| **Accumulative**  | `accum_`   | `accum_shark450_buy_value` | Cộng dồn trong khoảng thời gian (e.g., intraday) |
-| **Moving-window** | `mov_{N}_` | `mov_15_shark_ratio`       | Trung bình trượt N periods                       |
-
-**Trong WhaleFootprintFeatureCalculator Phase 1**:
-
-- Các features hiện tại là **point-in-time** (per candle)
-- Average prices được track **cumulatively** trong ngày
-
-### 4. Monetary Units - QUAN TRỌNG ⚠️
-
-**Tất cả giá trị tiền tệ (value) trong application đều có đơn vị TRIỆU (millions)**
-
-```python
-# ✅ ĐÚNG - Flow trong code
-trade_value_raw = price × volume          # raw units (VNĐ)
-threshold_scaled = 450 * 1_000_000        # scale threshold to raw
-is_shark = trade_value_raw >= threshold_scaled
-value_in_millions = trade_value_raw / 1_000_000  # convert to millions
-
-# 📊 Output
-"shark450_buy_value": 1250  # = 1,250 triệu VNĐ = 1.25 tỷ VNĐ
-```
-
-**Lý do**:
-
-- Tránh overflow khi làm việc với số lớn
-- Dễ đọc, dễ hiểu trong báo cáo
-- Consistency across entire application
-
-## Key Logic
-
-### StockDataCollector (`metan/stock/info/domain/stock_data_collector/stock_data_collector.py`)
-
-> Really important class to fetch and build stock info data from database
-
-- `stock()` reads a single row from Supabase `stock`, validates it with `Stock.model_validate`, and stores it in cache.
-- `ticks()` loads `stock_info_ticks` rows between `_effective_start_date()` and `end_date`, filters `TickAction` to buy/sell sides, converts epoch seconds to ISO strings (UTC), and sorts by trade date while logging aggregate stats along the way.
-- `prices()` first counts rows `>= start_date`, then fetches up to `end_date` plus five extra historic days (to ensure rolling baselines) and converts each dict into a `Price`. Sorting is ascending before caching.
-- `price_candles_by_date()` instantiates `TcbsSymbolCandleFetcher`, groups returned `PriceCandle`s by trading date, sorts them, and rejects missing `time` values.
-- `tick_candles_by_date()` pulls both ticks and price candles, groups tick actions per day, buckets them into fixed `IntradayInterval`s, computes OHLC/volume/value (aggregate trade value divided by 1e6) for each bucket, and iterates TCBS price slots in order so the exchange timeline stays authoritative. Any missing tick buckets are logged and raise immediately so downstream analytics never silently diverge from price data
-
-### IntradaySymbolFeaturePersistor (`metan/stock/trading/domain/feature/persistor/intraday/intraday_symbol_feature_persistor.py`)
-- Accepts `symbol`, `start_date`, `end_date`, `IntradayInterval` and reuses a single `StockDataCollector` for base candles + calculators.
-- `_build_base_candles()` flattens TickCandles (already containing OHLCV/value) into dataclasses sorted by time.
-- `_features` currently contains only `WhaleFootprintFeatureCalculator`, but the list is designed to be extended with additional `BaseFeatureCalculator` subclasses.
-- `_infer_feature_frame()` normalizes each calculator's `DataFrame` onto the `time` index and drops non-feature columns, enabling consistent merges.
-- Each calculator execution lives inside a try/except so a single failing namespace is logged and skipped instead of aborting the entire persistence run.
-- `_merge_features_into_rows()` injects `{namespace: feature_map}` JSON per candle; missing namespace data for any time raises immediately to keep persisted rows consistent.
-- `_persist_rows()` batches rows (default 500) and upserts into Supabase `stock_trading_feature_candles` via `on_conflict="symbol,time"`. Errors are logged and the persistor keeps processing remaining chunks.
-- `persist()` returns a summary dict containing `written`, `candles`, and `namespaces`, which downstream services can use for monitoring or retries.
+- `testbed/calculate_feature.py`: quick-run whale footprint calculation for a hardcoded symbol/date.
+- `testbed/compare_candle.py`: compares TCBS candle time grids between two symbols to spot schedule gaps.
 
 ## External Dependencies & Cross-Service Contracts
-| Dependency | Scope | Purpose | Notes |
-| --- | --- | --- | --- |
-| `metan-core` | Shared | Supplies the `Logger`, environment loader (`BaseEnvSettings`), and common utilities leveraged by configuration + logging calls | Lives in `packages/core`; no direct import cycles with `stock` |
-| `metan-supabase` | Shared | Wraps Supabase client creation/config via env vars (`APP_SUPABASE_URL`, `APP_SUPABASE_KEY`) | Used wherever `.table(...)` is called |
-| `pendulum` | Runtime | Timezone-aware parsing, timestamp math, ISO formatting | Heavy use inside `StockDataCollector` + fetchers; ensures Asia/Ho_Chi_Minh offsets are applied |
-| `pydantic` | Runtime | Data models (`Stock`, `Price`, `Tick`, `TickCandle`) and env settings schemas | **Not declared** in `packages/stock/pyproject.toml`; currently satisfied transitively via other workspace packages |
-| `requests` | Runtime | TCBS HTTP client | **Not declared** in `packages/stock/pyproject.toml`; pulled transitively from the workspace root today |
-| `pandas` | Runtime | Tabular feature computation, DataFrame merging/persistence | Imported across calculator modules but also missing from the package's direct dependency list |
-| `pytest` | Dev | Executes the integration tests under `tests/` | Requires network + Supabase/TCBS credentials |
+### Supabase (metan.supabase.client)
+
+- Tables used:
+  - `stock_info_stocks` (stock metadata incl. `exchange`).
+  - `stock_info_prices` (daily OHLC + foreign flow; fields priceOpen/priceClose/... mapped to `Price`).
+  - `stock_info_ticks` (intraday ticks; `meta` lists [ts, volume, price, side]).
+  - `stock_common_configuration` (intraday timepoint configs; keys `INTRADAY_CANDLE_TIMEPOINTS_*`).
+  - `stock_trading_feature_candles` (feature persistence upsert target).
+- Operations: select/order/limit with filters; upsert with `on_conflict` keys for configuration and feature rows.
+
+### TCBS REST (apiextaws.tcbs.com.vn/stock-insight/v2/stock/bars)
+
+- Used by `TcbsSymbolCandleFetcher`; paginated pulls with `resolution` derived from `IntradayInterval` (5m/60m).
+- Auth via `StockInfoConfiguration.tcbs_token` (Bearer); filters out post-close trades (>= 14:30) and midday 11:30 artifacts.
+- Also leveraged indirectly by `IntradayTimepointsGenerator` to derive trading slot schedules.
+
+### Workspace Dependencies
+
+- `metan-core`: logging (`Logger`), environment settings base class.
+- `metan-supabase`: provides configured `supabase` client shared across helpers and collectors.
+- `pendulum`, `pandas`, `requests`, `pydantic`: time handling, DataFrame features, HTTP, and typed models.
+
+## Observability & Error Handling
+
+- Collector and feature layers use `Logger` for info/error events and intentionally fail fast on missing data (e.g., mismatched day sets, missing candles, invalid config payloads).
+- Cache dictionaries in `StockDataCollector` reduce repeated Supabase/TCBS traffic but are cleared manually in tests.
+
+## Testing Notes
+
+- `tests/metan/stock/info/domain/stock_data_collector/test_candles_by_date.py` hits live Supabase + TCBS to verify:
+  - TCBS candles return sorted dates/times within requested window.
+  - Candle count matches exchange-specific expectations (`StockInfoContains` constants).
+- No isolated unit fakes; tests assume credentials/connectivity are available.
+
+## Next Steps for Onboarding
+
+- Ensure `stock_info_config.tcbs_token` is set in environment for TCBS access.
+- Seed `stock_common_configuration` with intraday timepoints via `IntradayTimepointsGenerator` before running feature calculations.
+- When extending features, follow naming/unit conventions from Whale Footprint and reuse `BaseFeatureCalculator` + helpers to enforce data integrity.

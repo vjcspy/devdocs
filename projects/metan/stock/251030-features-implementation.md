@@ -1,4 +1,4 @@
-# 📊 Whale Footprint Features - Implementation Documentation
+# 📊 Features - Implementation Documentation
 
 [TOC]
 > Document is written by mixing Vietnamese/English
@@ -17,16 +17,14 @@
 
 ## 🎯 TL;DR - Quick Context
 
-### Whale Footprint là gì?
+### Features
+
+#### Whale Footprint là gì?
 Phân tích dấu chân của "cá mập" (shark - nhà đầu tư lớn) và "cừu" (sheep - nhà đầu tư nhỏ lẻ) trong giao dịch chứng khoán để:
+
 - Phát hiện hoạt động của tổ chức lớn (institutional trading)
 - Đo lường sức mạnh mua/bán thực sự của các thế lực lớn
 - Chuẩn hóa các giá trị để so sánh cross-day và cross-symbol
-
-### Use Case trong AI Model
-- **Feature Engineering**: Input cho LSTM, XGBoost, RL models
-- **Pattern Recognition**: Phát hiện accumulation/distribution patterns
-- **Signal Generation**: Kết hợp với RSI, MACD để tăng độ chính xác
 
 ---
 
@@ -71,6 +69,7 @@ trade_value_raw = price × volume  # đơn vị: đồng (VNĐ)
 ```
 
 **Classification Logic** (per threshold T):
+
 - T được định nghĩa trong **millions** (e.g., 450 = 450 triệu VNĐ)
 - So sánh: `trade_value_raw >= T * 1_000_000`
   - ✅ → **shark**: Giao dịch lớn (nhà đầu tư tổ chức)
@@ -81,6 +80,7 @@ trade_value_raw = price × volume  # đơn vị: đồng (VNĐ)
 ### 2. Sides (Hướng Giao Dịch)
 
 Từ `TickAction.side`:
+
 - `'B'` (Buy): Lệnh MUA
 - `'S'` (Sell): Lệnh BÁN
 - `'Undefined'`: Phiên ATO/ATC (KHÔNG tính trong whale footprint)
@@ -96,6 +96,7 @@ Từ `TickAction.side`:
 | **Moving-window** | `mov_{N}_` | `mov_15_shark_ratio` | Trung bình trượt N periods |
 
 **Trong WhaleFootprintFeatureCalculator Phase 1**:
+
 - Các features hiện tại là **point-in-time** (per candle)
 - Average prices được track **cumulatively** trong ngày
 
@@ -115,6 +116,7 @@ value_in_millions = trade_value_raw / 1_000_000  # convert to millions
 ```
 
 **Lý do**:
+
 - Tránh overflow khi làm việc với số lớn
 - Dễ đọc, dễ hiểu trong báo cáo
 - Consistency across entire application
@@ -127,9 +129,18 @@ value_in_millions = trade_value_raw / 1_000_000  # convert to millions
 ```
 packages/stock/metan/stock/trading/domain/feature/
 ├── calculator/
-│   ├── base_feature_calculator.py          # Abstract base
+│   ├── common/
+│   │   └── base.py                          # Shared aggregation/validation utilities
+│   ├── base_feature_calculator.py           # Abstract base
 │   └── whale_footprint/
-│       └── whale_footprint_feature_calculator.py  # ✅ Main implementation
+│       ├── shark_values.py                  # Per-candle buy/sell values (millions)
+│       ├── avg_prices.py                    # Cumulative avg price per side/category
+│       ├── ratios_5d_pc.py                  # Per-candle value vs 5D baseline
+│       ├── urgency_spread.py                # Shark buy-sell spread vs VWAP (%)
+│       └── whale_footprint_feature_calculator.py  # Main implementation
+├── persistor/
+│   └── intraday/
+│       └── intraday_symbol_feature_persistor.py    # Merge + upsert to DB
 ```
 
 ---
@@ -138,23 +149,16 @@ packages/stock/metan/stock/trading/domain/feature/
 
 **Fail-Fast Strategy**: Không có silent fallback, mọi inconsistency đều raise ValueError
 
-### Validation Checklist
-
-| Condition | Error Raised | Reason |
-|-----------|--------------|--------|
-| `Price.value <= 0` cho ngày có candles | ✅ ValueError | Không thể tính ratio với baseline = 0 |
-| `today_pc <= 0` | ✅ ValueError | Baseline không hợp lệ |
-| `pc_5d <= 0` hoặc NaN khi expected | ✅ ValueError | Thiếu data cho normalization |
-| `candle_count` diff > 1 across days | ✅ ValueError | Data inconsistency |
-| Date có ticks nhưng không có candles | ✅ ValueError | Data processing error |
-
 **Example Error Message**:
 ```python
 raise ValueError(
-    f"Insufficient prior trading days for 5D baseline calculation. "
-    f"Missing/invalid pc_5d for dates={trading_days_without_5d} "
-    f"(symbol={self.data_collector.symbol}). "
-    f"Ensure at least 5 prior trading days exist before the first date in your range."
+    "Insufficient prior trading days for 5D baseline calculation. "
+    f"Missing/invalid pc_value_5d for dates={missing}. Ensure at least 5 prior trading days exist."
+)
+
+# Ngoài ra, khi bộ ngày của prices và tick_candles không khớp trong phạm vi yêu cầu
+raise ValueError(
+    f"Mismatch between price days and tick days in range: price_days={price_days} tick_days={tick_days}"
 )
 ```
 
@@ -168,7 +172,7 @@ Read `packages/stock/metan/stock/trading/domain/feature/persistor/intraday/intra
 {
   "id": 1408,
   "symbol": "CEO",
-  "time": 1759716000,
+  "time": "2025-10-06T09:05:00Z",
   "interval": 300,
   "open": 23400,
   "high": 24000,
@@ -194,6 +198,7 @@ Read `packages/stock/metan/stock/trading/domain/feature/persistor/intraday/intra
       "shark900_sell_avg_price": 23400,
       "sheep450_sell_avg_price": 23709,
       "sheep900_sell_avg_price": 23705,
+      "shark450_urgency_spread": 0.6521,
       "shark450_buy_ratio_5d_pc": 0.2174,
       "shark900_buy_ratio_5d_pc": 0.1366,
       "sheep450_buy_ratio_5d_pc": 0.0703,
@@ -215,34 +220,8 @@ Read `packages/stock/metan/stock/trading/domain/feature/persistor/intraday/intra
 category ∈ {shark, sheep}
 threshold ∈ {450, 900}  # configurable
 side ∈ {buy, sell}
-metric ∈ {value, avg_price, ratio_5d_pc}
+metric ∈ {value, avg_price, ratio_5d_pc, urgency_spread}
 ```
-
----
-
-## ✅ Completed Features
-
-### 1. Basic Classification ✅
-- [x] Shark/Sheep classification theo thresholds
-- [x] Buy/Sell side separation
-- [x] Trade value aggregation trong millions
-
-### 2. Average Price Tracking ✅
-- [x] Cumulative volume-weighted average prices
-- [x] Per-category, per-threshold, per-side
-- [x] Fallback mechanism (first candle open)
-- [x] Daily reset
-
-### 3. Normalization ✅
-- [x] 5-day trailing per-candle baseline (exclude current)
-- [x] Ratio computation (rounded to 4 decimals)
-- [x] Strict validation (min_periods=5)
-
-### 4. Data Validation ✅
-- [x] Price.value > 0 validation
-- [x] Base candle count consistency check
-- [x] Baseline computation validation
-- [x] Comprehensive error messages with context
 
 ---
 ## 🎓 AI Agent Guidelines
@@ -256,13 +235,16 @@ metric ∈ {value, avg_price, ratio_5d_pc}
 
 2. **Follow naming convention**:
    - Point-in-time: no prefix
-   - Accumulative: `accum_` prefix
-   - Moving-window: `mov_{N}_` prefix
+   - Hiện tại sử dụng các metric: `value`, `avg_price`, `ratio_5d_pc`, `urgency_spread`
+   - Nếu mở rộng thêm moving-window: dùng `mov_{N}_` theo chuẩn
 
 3. **Maintain units consistency**:
    - Values: always in **millions**
    - Prices: always in **VNĐ** (raw)
    - Volumes: always in **shares** (raw)
+
+   Lưu ý: Phân loại shark/sheep so sánh theo `trade_value_raw = price × volume`,
+   trong khi các trường đầu ra `*_value` và `candle.value` đã được chuẩn hóa về đơn vị triệu.
 
 4. **Error handling strategy**:
    - Validate inputs strictly
@@ -280,6 +262,7 @@ metric ∈ {value, avg_price, ratio_5d_pc}
 ## 📚 Reference Links
 
 ### Code Locations
+
 - Base calculator: `packages/stock/metan/stock/trading/domain/feature/calculator/base_feature_calculator.py`
 - Whale footprint: `packages/stock/metan/stock/trading/domain/feature/calculator/whale_footprint/whale_footprint_feature_calculator.py`
 - Data collector: `packages/stock/metan/stock/info/domain/stock_data_collector/stock_data_collector.py`
