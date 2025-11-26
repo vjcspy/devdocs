@@ -56,21 +56,21 @@ Hiện tại đã có các features sau
 
 ### Whale Footprint Features
 
-Tạm thời sẽ dùng 2 threshold là 450 và 900.
-- `shark450_buy_value`,  `shark450_sell_value` mua bán của shark450 trong **`*candle`*** (**IMPLEMENTED**)
+Tạm thời sẽ dùng 2 threshold 450 và 900 để so sánh value xem có phải là shark hay không
+- `sharkXXX_buy_value`,  `sharkXXX_sell_value` mua bán của sharkXXX trong **`*candle`*** (**IMPLEMENTED**)
   
     Để theo value như này có vẻ không ổn, có thể nomalize với giá trị giao dịch trung bình 5 ngày. (**IMPLEMENTED**)
-    `shark450_buy_ratio_5d_pc`: so sánh tỷ lệ với trung bình 5 ngày
+    `sharkXXX_buy_ratio_5d_pc`: so sánh tỷ lệ với trung bình 5 ngày
 
-- `shark450_buy_avg_price`, `shark450_sell_avg_price` Mức giá giao dịch BÌNH QUÂN của các lệnh MUA/BÁN lớn. 
+- `sharkXXX_buy_avg_price`, `sharkXXX_sell_avg_price` Mức giá giao dịch BÌNH QUÂN của các lệnh MUA/BÁN lớn. (**IMPLEMENTED**)
   
     Cho một cái nhìn để biết được hành vi của shark là đang mua/bán giá thấp hay là mua giá cao.
 
-    *Insight:* Nếu `shark450_buy_avg_price > shark450_sell_avg_price`, có thể phe mua lớn chấp nhận mua giá cao hơn phe bán lớn.
+    *Insight:* Nếu `sharkXXX_buy_avg_price > sharkXXX_sell_avg_price`, có thể phe mua lớn chấp nhận mua giá cao hơn phe bán lớn.
 
     **NOTE**: Hiện tại đang implementing là giá mua trung bình accumulate từ đầu ngày tới thời điểm của nến đang xem.
 
-- `avg_shark450_buy_value_5d`,`avg_shark900_buy_value_5d`, `avg_shark450_sell_value_5d`,`avg_shark900_sell_value_5d`
+- `avg_sharkXXX_buy_value_5d`, `avg_sharkXXX_sell_value_5d`
 
     It has not been implemented yet. Because I haven't found it's important right now
 
@@ -78,4 +78,6 @@ Tạm thời sẽ dùng 2 threshold là 450 và 900.
   
   - Có nên tính accumulation trong n candle cho chỉ số này không?
   
-- **`shark_urgency_spread = (avg_price_shark_buys - avg_price_shark_sells) / vwap`** Chuẩn hóa bằng VWAP giúp so sánh được giữa các cổ phiếu. Spread dương lớn cho thấy phe mua lớn đang rất "hung hăng", sẵn sàng mua đuổi giá cao.
+- **`shark_urgency_spread = (avg_price_shark_buys - avg_price_shark_sells) / vwap`** (**IMPLEMENTED**)
+
+    - Chuẩn hóa bằng VWAP giúp so sánh được giữa các cổ phiếu. Spread dương lớn cho thấy phe mua lớn đang rất "hung hăng", sẵn sàng mua đuổi giá cao. 
