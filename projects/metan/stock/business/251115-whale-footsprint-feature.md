@@ -71,6 +71,11 @@ Tạm thời sẽ dùng 2 threshold là 450 và 900.
     **NOTE**: Hiện tại đang implementing là giá mua trung bình accumulate từ đầu ngày tới thời điểm của nến đang xem.
 
 - `avg_shark450_buy_value_5d`,`avg_shark900_buy_value_5d`, `avg_shark450_sell_value_5d`,`avg_shark900_sell_value_5d`
+
+    It has not been implemented yet. Because I haven't found it's important right now
+
 - `ratio_shark_buy_shell` , `ratio_buy_shark_sheep`, `ratio_shell_shark_sheep` cho biết tỷ lệ giữa mua bán của shark, giữa mua của shark và sheep và bán của shark và sheep
+  
   - Có nên tính accumulation trong n candle cho chỉ số này không?
+  
 - **`shark_urgency_spread = (avg_price_shark_buys - avg_price_shark_sells) / vwap`** Chuẩn hóa bằng VWAP giúp so sánh được giữa các cổ phiếu. Spread dương lớn cho thấy phe mua lớn đang rất "hung hăng", sẵn sàng mua đuổi giá cao.
