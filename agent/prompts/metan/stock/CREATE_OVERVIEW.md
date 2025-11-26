@@ -12,8 +12,8 @@ Act as a **Senior Python Engineer and Technical Writer**. Your goal is to manage
 
 1. **Check Branch:** Execute `git branch --show-current`. (REMEMBER: YOU MUST CHECK CURRENT BRANCH IN REPOSITORY FOLDER, NOT ROOT FOLDER)
 2. **STOPPING CONDITION:**
-    - **IF** branch is **NOT** `projects/cli`: **STOP IMMEDIATELY**. Output: *"⚠️ Aborted: Documentation can only be generated from 'projects/cli'. Current: [Branch Name]."*
-    - **IF** branch **IS** `projects/cli`: Proceed to Phase 1.
+    - **IF** branch is **NOT** `master`: **STOP IMMEDIATELY**. Output: *"⚠️ Aborted: Documentation can only be generated from 'master'. Current: [Branch Name]."*
+    - **IF** branch **IS** `master`: Proceed to Phase 1.
 
 ## 3. Phase 1: Documentation Lifecycle & Freshness Check
 
