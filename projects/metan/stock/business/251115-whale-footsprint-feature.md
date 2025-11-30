@@ -57,6 +57,7 @@ Hiện tại đã có các features sau
 ### Whale Footprint Features
 
 Tạm thời sẽ dùng 2 threshold 450 và 900 để so sánh value xem có phải là shark hay không
+
 - `sharkXXX_buy_value`,  `sharkXXX_sell_value` mua bán của sharkXXX trong **`*candle`*** (**IMPLEMENTED**)
   
     Để theo value như này có vẻ không ổn, có thể nomalize với giá trị giao dịch trung bình 5 ngày. (**IMPLEMENTED**)
@@ -74,10 +75,18 @@ Tạm thời sẽ dùng 2 threshold 450 và 900 để so sánh value xem có ph�
 
     It has not been implemented yet. Because I haven't found it's important right now
 
-- `ratio_sharkXXX_buy_shell` , `ratio_buy_sharkXXX_sheep`, `ratio_shell_sharkXXX_sheep` cho biết tỷ lệ giữa mua bán của shark, giữa mua của shark và sheep, bán của shark và sheep
-  
-  - Có nên tính accumulation trong n candle cho chỉ số này không? => sẽ tính accum_ cho các chỉ số trên là từ đầu phiên
+- `percent_sharkXXX_buy_sell`, `percent_sheepXXX_buy_sell`, `percent_buy_sharkXXX_sheep`, `percent_sell_sharkXXX_sheep` (**IMPLEMENTED**)
+
+    Các chỉ số này được tính dưới dạng phần trăm (%) và có 2 phiên bản:
+    1. Tính trong candle hiện tại (không có prefix).
+    2. Tính lũy kế từ đầu phiên (prefix `accum_`).
+
+    **Công thức cụ thể:**
+  - `percent_sharkXXX_buy_sell` = `Shark Buy / (Shark Buy + Shark Sell)`: Tỷ trọng Mua trong tổng giao dịch của Shark.
+  - `percent_sheepXXX_buy_sell` = `Sheep Buy / (Sheep Buy + Sheep Sell)`: Tỷ trọng Mua trong tổng giao dịch của Sheep.
+  - `percent_buy_sharkXXX_sheep` = `Shark Buy / (Shark Buy + Sheep Buy)`: Tỷ trọng Shark đóng góp trong tổng lực Mua.
+  - `percent_sell_sharkXXX_sheep` = `Shark Sell / (Shark Sell + Sheep Sell)`: Tỷ trọng Shark đóng góp trong tổng lực Bán.
   
 - **`shark_urgency_spread = (avg_price_shark_buys - avg_price_shark_sells) / vwap`** (**IMPLEMENTED**)
 
-    - Chuẩn hóa bằng VWAP giúp so sánh được giữa các cổ phiếu. Spread dương lớn cho thấy phe mua lớn đang rất "hung hăng", sẵn sàng mua đuổi giá cao. 
+  - Chuẩn hóa bằng VWAP giúp so sánh được giữa các cổ phiếu. Spread dương lớn cho thấy phe mua lớn đang rất "hung hăng", sẵn sàng mua đuổi giá cao.

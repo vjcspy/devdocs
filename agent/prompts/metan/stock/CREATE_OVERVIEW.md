@@ -6,16 +6,7 @@ Act as a **Senior Python Engineer and Technical Writer**. Your goal is to manage
 
 **Deliverable Path:** `devdocs/projects/metan/stock/OVERVIEW.md`
 
-## 2. Phase 0: Critical Environment Validation
-
-**Action:** Verify the execution environment before touching any code.
-
-1. **Check Branch:** Execute `git branch --show-current`. (REMEMBER: YOU MUST CHECK CURRENT BRANCH IN REPOSITORY FOLDER, NOT ROOT FOLDER)
-2. **STOPPING CONDITION:**
-    - **IF** branch is **NOT** `master`: **STOP IMMEDIATELY**. Output: *"⚠️ Aborted: Documentation can only be generated from 'master'. Current: [Branch Name]."*
-    - **IF** branch **IS** `master`: Proceed to Phase 1.
-
-## 3. Phase 1: Documentation Lifecycle & Freshness Check
+## 2. Phase 1: Documentation Lifecycle & Freshness Check
 
 **Action:** Determine if we are creating specific new documentation or updating existing one.
 
@@ -39,7 +30,7 @@ Act as a **Senior Python Engineer and Technical Writer**. Your goal is to manage
   - **Delta Analysis:** Execute `git diff --name-only [Existing Hash] HEAD`.
   - **Instruction:** Analyze the list of changed files. Keep this "Diff Context" in mind during Phase 2. You must explicitly highlight how these recent changes impact the architecture in the final output.
 
-## 4. Phase 2: Codebase Analysis (Deep Scan)
+## 3. Phase 2: Codebase Analysis (Deep Scan)
 
 *We are working only in stock feature. The main package is`packages/stock`. You should check `pyproject.toml` to get the list of workspace members. Perform the scan based on the Status determined in Phase 1.*
 
@@ -50,7 +41,7 @@ Act as a **Senior Python Engineer and Technical Writer**. Your goal is to manage
 - **Integration Map:**
   - Infer entities and external systems.
 
-## 5. Phase 3: Synthesis & Output Assembly
+## 4. Phase 3: Synthesis & Output Assembly
 
 *Generate (or Overwrite) the single Markdown file at the target path. **Constraint: DO NOT use tables. Use Hierarchical Headings (H2, H3, H4).***
 
