@@ -74,9 +74,9 @@ Tạm thời sẽ dùng 2 threshold 450 và 900 để so sánh value xem có ph�
 
     It has not been implemented yet. Because I haven't found it's important right now
 
-- `ratio_shark_buy_shell` , `ratio_buy_shark_sheep`, `ratio_shell_shark_sheep` cho biết tỷ lệ giữa mua bán của shark, giữa mua của shark và sheep và bán của shark và sheep
+- `ratio_sharkXXX_buy_shell` , `ratio_buy_sharkXXX_sheep`, `ratio_shell_sharkXXX_sheep` cho biết tỷ lệ giữa mua bán của shark, giữa mua của shark và sheep, bán của shark và sheep
   
-  - Có nên tính accumulation trong n candle cho chỉ số này không?
+  - Có nên tính accumulation trong n candle cho chỉ số này không? => sẽ tính accum_ cho các chỉ số trên là từ đầu phiên
   
 - **`shark_urgency_spread = (avg_price_shark_buys - avg_price_shark_sells) / vwap`** (**IMPLEMENTED**)
 

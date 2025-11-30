@@ -11,7 +11,7 @@
 - Registers robot/event pairs with external adaptors (currently Sensara) whenever subscriptions change so hardware feeds stay aligned.
 
 ## Recent Changes
-- Prior overview had no commit metadata; this is a fresh baseline. Current tree includes a new generated event schema (`NO_TOILET_ACTIVITY_ALARM`) and generator support in `schemas/gen.ts` (level 30, triggers enabled); rerun the generator when updating schema definitions.
+- Prior overview had no commit metadata; this is a fresh baseline. Current tree includes a new generated event schema (`NO_TOILET_ACTIVITY_ALARM`) and generator support in `schemas/gen.ts` (level 30, triggers enabled); run `yarn generate:schemas` to create new schemas or `FORCE_GENERATE=true yarn generate:schemas` to regenerate all when altering schema definitions.
 
 ## Repo Purpose & Bounded Context
 - Source of truth for event ingestion and routing across TinyBots: manages `incoming_event`, `outgoing_event`, `event_schema`, `event_provider`, and `event_subscription`.

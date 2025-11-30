@@ -16,6 +16,7 @@
 - Bounded to intraday equities data (Vietnam exchanges HSX/HNX) and downstream feature persistence; relies on other workspace packages for logging (`metan-core`) and database connectivity (`metan-supabase`).
 
 ## Project Structure
+
 ```
 packages/stock/
 ├─ pyproject.toml                # package metadata (deps: metan-supabase, pendulum)
@@ -49,6 +50,7 @@ packages/stock/
 ```
 
 ## Core Services & Logic
+
 ### StockDataCollector (info.domain.stock_data_collector.stock_data_collector)
 
 - Loads per-symbol data between `start_date` and `end_date` at a given `IntradayInterval`.
@@ -81,12 +83,71 @@ packages/stock/
 - Runs feature calculators (currently only Whale Footprint) and merges namespace-scoped feature frames.
 - Upserts to Supabase table `stock_trading_feature_candles` with unique `(symbol, time)` constraint; logs written row count.
 
-### Testbed Scripts
+## Key Notes
 
-- `testbed/calculate_feature.py`: quick-run whale footprint calculation for a hardcoded symbol/date.
-- `testbed/compare_candle.py`: compares TCBS candle time grids between two symbols to spot schedule gaps.
+### 1. Phân loại Shark/Sheep theo Threshold
+
+**Input**: Trade value (tính bằng raw units)
+
+```python
+trade_value_raw = price × volume  # đơn vị: đồng (VNĐ)
+```
+
+**Classification Logic** (per threshold T):
+
+- T được định nghĩa trong **millions** (e.g., 450 = 450 triệu VNĐ)
+- So sánh: `trade_value_raw >= T * 1_000_000`
+  - ✅ → **shark**: Giao dịch lớn (nhà đầu tư tổ chức)
+  - ❌ → **sheep**: Giao dịch nhỏ (nhà đầu tư cá nhân)
+
+**Default Thresholds**: `[450, 900]` (450M và 900M VNĐ)
+
+### 2. Sides (Hướng Giao Dịch)
+
+Từ `TickAction.side`:
+
+- `'B'` (Buy): Lệnh MUA
+- `'S'` (Sell): Lệnh BÁN
+- `'Undefined'`: Phiên ATO/ATC (KHÔNG tính trong whale footprint)
+
+### 3. Point-in-Time vs Accumulative vs Moving-Window
+
+**Naming Convention trong Code**:
+
+| Loại              | Prefix     | Ví dụ                      | Mô tả                                            |
+| ----------------- | ---------- | -------------------------- | ------------------------------------------------ |
+| **Point-in-time** | _(none)_   | `high`, `low`, `close`     | Giá trị tại thời điểm trong candle               |
+| **Accumulative**  | `accum_`   | `accum_shark450_buy_value` | Cộng dồn trong khoảng thời gian (e.g., intraday) |
+| **Moving-window** | `mov_{N}_` | `mov_15_shark_ratio`       | Trung bình trượt N periods                       |
+
+**Trong WhaleFootprintFeatureCalculator Phase 1**:
+
+- Các features hiện tại là **point-in-time** (per candle)
+- Average prices được track **cumulatively** trong ngày
+
+### 4. Monetary Units - QUAN TRỌNG ⚠️
+
+**Tất cả giá trị tiền tệ (value) trong application đều có đơn vị TRIỆU (millions)**
+
+```python
+# ✅ ĐÚNG - Flow trong code
+trade_value_raw = price × volume          # raw units (VNĐ)
+threshold_scaled = 450 * 1_000_000        # scale threshold to raw
+is_shark = trade_value_raw >= threshold_scaled
+value_in_millions = trade_value_raw / 1_000_000  # convert to millions
+
+# 📊 Output
+"shark450_buy_value": 1250  # = 1,250 triệu VNĐ = 1.25 tỷ VNĐ
+```
+
+**Lý do**:
+
+- Tránh overflow khi làm việc với số lớn
+- Dễ đọc, dễ hiểu trong báo cáo
+- Consistency across entire application
 
 ## External Dependencies & Cross-Service Contracts
+
 ### Supabase (metan.supabase.client)
 
 - Tables used:
@@ -109,20 +170,3 @@ packages/stock/
 - `metan-supabase`: provides configured `supabase` client shared across helpers and collectors.
 - `pendulum`, `pandas`, `requests`, `pydantic`: time handling, DataFrame features, HTTP, and typed models.
 
-## Observability & Error Handling
-
-- Collector and feature layers use `Logger` for info/error events and intentionally fail fast on missing data (e.g., mismatched day sets, missing candles, invalid config payloads).
-- Cache dictionaries in `StockDataCollector` reduce repeated Supabase/TCBS traffic but are cleared manually in tests.
-
-## Testing Notes
-
-- `tests/metan/stock/info/domain/stock_data_collector/test_candles_by_date.py` hits live Supabase + TCBS to verify:
-  - TCBS candles return sorted dates/times within requested window.
-  - Candle count matches exchange-specific expectations (`StockInfoContains` constants).
-- No isolated unit fakes; tests assume credentials/connectivity are available.
-
-## Next Steps for Onboarding
-
-- Ensure `stock_info_config.tcbs_token` is set in environment for TCBS access.
-- Seed `stock_common_configuration` with intraday timepoints via `IntradayTimepointsGenerator` before running feature calculations.
-- When extending features, follow naming/unit conventions from Whale Footprint and reuse `BaseFeatureCalculator` + helpers to enforce data integrity.

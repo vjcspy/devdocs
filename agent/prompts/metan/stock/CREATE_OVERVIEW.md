@@ -64,5 +64,6 @@ Act as a **Senior Python Engineer and Technical Writer**. Your goal is to manage
 3. **Repo Purpose & Bounded Context:** High-level architectural role.
 4. **Project Structure:** The inventory tree.
 5. **Core Services & Logic:** (Detail the "How").
-6. **External Dependencies & Cross-Service Contracts:**
+6. **Key Notes** (User will define and maitain this section, it include some important notes for implementation)
+7. **External Dependencies & Cross-Service Contracts:**
     - *Crucial:* Explicitly list all external connections found in source code.
