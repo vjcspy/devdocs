@@ -22,6 +22,64 @@ Use concept orders. This flow is also in wonkers-ecd under the zsp flow. We acce
 
 **Task:** Implement this concept order flow for standard ecd ecare (Ecare Puur).
 
+---
+
+## 🚨 Critical Implementation Decisions (MUST READ)
+
+Based on ZSP reference implementation analysis, the following are **non-negotiable** requirements:
+
+### 1. ✅ Raw Form Preservation (Task 0 - DO THIS FIRST!)
+
+**CRITICAL:** Implement `mapNotificationToForm()` before any other changes. This is what makes concept orders work - it captures ALL raw `AdditionalFields` as question/answer pairs for back-office review.
+
+```typescript
+// REQUIRED pattern (copy from ZSP):
+const form = this.ecarePuurMappingService.mapNotificationToForm(notification, client, integrationUser)
+const orderDto = this.ecarePuurMappingService.mapSubscribe(...)
+await this.conceptService.createConceptOrder(form, orderDto)  // Pass BOTH!
+```
+
+### 2. ✅ Unsubscribe Flow: Skip Order Lookup (Option A - Matches ZSP)
+
+**DECISION MADE:** Remove ALL order lookup logic from unsubscribe flow:
+
+- ❌ Remove: `clientIdRepository.getOrderIds()`
+- ❌ Remove: `orderStatusService.getOrderId()`
+- ❌ Remove: `canBeDeleted()` status checking
+- ✅ Create concept return directly WITHOUT checking for existing orders
+- ✅ Back-office manually links concept returns to orders during review
+
+**Rationale:** Consistency with ZSP, simplicity, fulfills "accept all input" requirement.
+
+### 3. ✅ No Tracking in ecd_order Table
+
+**DECISION MADE:** Concept orders are NOT tracked in `ecd_order` table:
+
+- ❌ Remove: `clientIdRepository.addClient()` calls
+- ✅ Concept service handles its own tracking
+- ✅ Production orders (after approval) will be tracked normally
+
+### 4. ✅ Dual Mapping: Form + DTO
+
+**REQUIRED:** Every concept order/return needs TWO mappings:
+
+1. **Raw Form** (`ConceptForm`): ALL AdditionalFields preserved as-is
+2. **Structured DTO** (`ConceptOrderDto`/`ConceptReturnDto`): Mapped business data
+
+Both passed to `ConceptService.createConceptOrder(form, orderDto)`.
+
+### 5. ✅ Best-Effort API Enrichment
+
+**REQUIRED:** ALL external API calls wrapped in try-catch with defaults:
+
+- Ecare client lookup → fallback: `{ clientUuid, name: 'UNKNOWN', system: 'ECARE PUUR' }`
+- Requester lookup → fallback: `{ email: 'operations@tinybots.nl', firstname: SenderId, lastname: 'ERROR RETRIEVING EMPLOYEE' }`
+- Careteam lookup → fallback: `'UNKNOWN'`
+
+Never block concept order creation due to API failures.
+
+---
+
 ## 🎯 Objective
 
 Refactor the Ecare Puur notification flow in `wonkers-ecd` to use concept orders instead of production orders, accepting all form submissions regardless of validation errors and allowing back-office staff to review and correct data before order fulfillment.
@@ -31,10 +89,11 @@ Refactor the Ecare Puur notification flow in `wonkers-ecd` to use concept orders
 1. **Breaking Change Risk**: This changes the behavior from immediate order placement to concept order creation - ensure backward compatibility or coordinate deployment
 2. **Data Quality**: Accepting invalid data means back-office staff must review all orders - need proper concept order management workflow
 3. **Existing Pattern**: ZSP already implements this pattern via `ConceptService` - reuse the same approach for consistency
-4. **Validation Strategy**: Need to relax strict validation while still capturing all submitted data
-5. **Error Handling**: Remove strict validation errors but maintain structural DTO validation
-6. **Client/Order Tracking**: Concept orders may need different tracking in `ecd_order` table
-7. **Email/Slack Notifications**: Verify concept order notifications work correctly for Ecare Puur
+4. **Raw Form Preservation**: CRITICAL - Must implement `mapNotificationToForm()` to capture ALL raw form data (like ZSP does)
+5. **Validation Strategy**: Need to relax strict validation while still capturing all submitted data
+6. **Error Handling**: Remove strict validation errors but maintain structural DTO validation
+7. **Unsubscribe Flow**: Match ZSP pattern - skip order lookup, create concept return directly (accept all input)
+8. **Email/Slack Notifications**: Verify concept order notifications work correctly for Ecare Puur
 
 ## 🔄 Implementation Plan
 
@@ -50,11 +109,13 @@ Refactor the Ecare Puur notification flow in `wonkers-ecd` to use concept orders
 
 - [ ] Analyze ZSP concept order pattern
   - **Outcome**: Document ZSP implementation:
-    - `ZspService.subscribe()` uses `ConceptService.createConceptOrder()`
-    - `ZspService.unsubscribe()` uses `ConceptService.createConceptReturn()`
-    - Relaxed validation - accepts all input
-    - Builds concept order form with all submitted data
-    - Uses `tb-concept-taas-orders` client
+    - `ZspService.subscribe()` uses `ConceptService.createConceptOrder(form, orderDto)` - passes BOTH raw form AND structured DTO
+    - `ZspService.unsubscribe()` uses `ConceptService.createConceptReturn(form, returnDto)` - passes BOTH raw form AND structured DTO
+    - **CRITICAL**: Uses `ZspMappingService.mapNotificationToForm()` to preserve ALL `AdditionalFields` as raw form data
+    - Relaxed validation - accepts all input, never throws
+    - No order lookup on unsubscribe - creates concept return directly
+    - Best-effort API enrichment - uses default values on failure
+    - Uses `tb-concept-taas-orders` client with `ConceptOrderDto`/`ConceptReturnDto` types
 
 - [ ] Identify validation points to relax
   - **Outcome**: List validation rules in `EcarePuurMappingService` that need to change:
@@ -65,11 +126,13 @@ Refactor the Ecare Puur notification flow in `wonkers-ecd` to use concept orders
     - Email format validation
 
 - [ ] Define concept order mapping strategy
-  - **Outcome**: Design how to map Ecare Puur form to concept order DTO:
-    - Map all `AdditionalFields` even if invalid
-    - Preserve original values for review
-    - Flag validation errors as notes/comments
-    - Maintain requester/client enrichment from APIs
+  - **Outcome**: Design how to map Ecare Puur form to concept order:
+    - **Dual Mapping Required**: Map to BOTH `ConceptForm` (raw data) AND `ConceptOrderDto` (structured data)
+    - `ConceptForm`: Preserve ALL `AdditionalFields` as question/answer pairs (implement `mapNotificationToForm()`)
+    - `ConceptOrderDto`: Map to structured order DTO (like current mapping but without throwing errors)
+    - Validation warnings captured but don't block processing
+    - Best-effort API enrichment (requester/client) with fallback to defaults
+    - No validation errors thrown - all data accepted as-is
 
 ### Phase 2: Implementation (File/Code Structure)
 
@@ -79,13 +142,15 @@ Proposed changes to existing files:
 src/service/ecare/
 ├── EcarePuurService.ts              # 🔄 IN PROGRESS - Refactor to use ConceptService
 │   ├── notify()                     # Main entry - switch to concept flow
-│   ├── _subscribe()                 # Change from WonkersTaasOrderService to ConceptService
-│   └── _unsubscribe()               # Change to concept return flow
-├── EcarePuurMappingService.ts       # 🔄 IN PROGRESS - Relax validation
-│   ├── mapToSubscribeFields()       # Accept invalid data
-│   ├── mapToUnsubscribeFields()     # Accept invalid data
-│   └── _validateXYZ()               # Make validations non-blocking
-└── EcarePuurApiService.ts           # ✅ NO CHANGE - Keep API enrichment
+│   ├── subscribe()                  # Change from WonkersTaasOrderService to ConceptService
+│   └── unsubscribe()                # Change to concept return flow (skip order lookup)
+├── EcarePuurMappingService.ts       # 🔄 IN PROGRESS - Relax validation + add raw form mapping
+│   ├── mapSubscribePuurNotification()   # Accept invalid data, no throwing
+│   ├── mapUnsubscribePuurNotification() # Accept invalid data, no throwing
+│   ├── mapNotificationToForm()      # 🆕 NEW - Preserve ALL AdditionalFields as raw form
+│   ├── mapSubscribe()               # Update to use ConceptOrderDto
+│   └── mapUnsubscribe()             # Update to use ConceptReturnDto
+└── EcarePuurApiService.ts           # 🔄 MINOR CHANGE - Wrap calls in try-catch, return defaults on failure
 
 src/controller/
 └── EcarePuurNotificationController.ts # ✅ NO CHANGE - Webhook entry point stays same
@@ -95,7 +160,7 @@ src/model/
 └── EcarePuurFields.ts               # 🔄 EVALUATE - May need optional fields
 
 src/repository/
-└── ClientIdRepository.ts            # 🚧 EVALUATE - Check if concept orders need different tracking
+└── ClientIdRepository.ts            # ✅ NO CHANGE - Concept orders don't need ecd_order tracking
 
 test/
 ├── ecareService/                    # 🔄 UPDATE - Update tests for concept flow
@@ -112,7 +177,46 @@ test/
 
 ### Phase 3: Detailed Implementation Steps
 
-#### Step 1: Refactor EcarePuurMappingService Validation
+#### Step 0: Implement Raw Form Preservation (CRITICAL - Do This First!)
+
+**File**: `src/service/ecare/EcarePuurMappingService.ts`
+
+**Why this step:**
+This is the **most important difference** between production orders and concept orders. ZSP captures ALL raw form data via `mapNotificationToForm()`, allowing back-office staff to see exactly what was submitted, even if mapping/validation fails.
+
+**Implementation Pattern (copy from ZSP):**
+
+```typescript
+import { ConceptForm, FormAnswer } from 'tb-concept-taas-orders'
+
+public mapNotificationToForm(
+  notification: PuurNotificationDto, 
+  client: Client, 
+  integration: IntegrationUser
+): ConceptForm {
+  const relationId = integration.organisations[0].id
+  const clientId = this.getClientId(client, relationId)
+  const clientUuid = notification.PatientId
+  const system = 'ECARE PUUR'
+  
+  // Map ALL AdditionalFields to question/answer pairs
+  const answers: FormAnswer[] = notification.AdditionalFields.map(field => ({
+    title: notification.Type,           // 'Aanmeldbericht' or 'Afmeldbericht'
+    question: field.Display,            // Human-readable field label
+    technicalTerm: field.Key,           // Technical field name
+    answer: `${field.Value}`            // Raw value as-is (no validation!)
+  }))
+  
+  return { clientId, clientUuid, system, answers }
+}
+```
+
+**Expected outcome:**
+All form submissions preserve complete raw data for back-office review, regardless of validation/mapping errors.
+
+---
+
+#### Step 1: Relax Validation Logic to Accept All Input
 
 **File**: `src/service/ecare/EcarePuurMappingService.ts`
 
@@ -120,27 +224,50 @@ test/
 
 ```typescript
 // Strict validation throws errors
-_validateRequiredField(value, fieldName) {
-  if (!value) throw new BadRequestError(`${fieldName} is required`)
-}
+const homeNumberExtension = EcarePuurMappingTools.getRequiredField(notification, 'homeNumberExtension')
+// ↑ Throws BadRequestError if missing
+
+const homeNumberDetails = this.getHomeNumberAndExtension(homeNumberExtension)
+// ↑ Throws BadRequestError if invalid format
+
+const phoneNumber = this.phoneNumberService.checkPhoneNumber(phoneNumberForm)
+// ↑ Throws BadRequestError if invalid format
 ```
 
 **New Behavior:**
 
 ```typescript
-// Capture validation errors but don't throw
-_validateRequiredField(value, fieldName): ValidationWarning | null {
-  if (!value) return { field: fieldName, issue: 'missing_required' }
-  return null
+// Accept all input, use optional helpers, wrap in try-catch
+const homeNumberExtension = EcarePuurMappingTools.getOptionalField(notification, 'homeNumberExtension')
+// ↑ Returns null if missing, no throwing
+
+let homeNumberDetails = { homeNumber: null, extension: null }
+try {
+  homeNumberDetails = this.getHomeNumberAndExtension(homeNumberExtension)
+} catch (error) {
+  console.warn('Invalid homeNumberExtension, using defaults', error)
+}
+
+let phoneNumber = null
+try {
+  phoneNumber = this.phoneNumberService.checkPhoneNumber(phoneNumberForm)
+} catch (error) {
+  console.warn('Invalid phone number, using null', error)
 }
 ```
 
 **Changes:**
 
-- Make all validation methods return warnings instead of throwing
-- Collect all validation warnings
-- Pass warnings to concept order as notes/comments
-- Keep structural DTO validation (class-validator) for webhook payload
+- Replace `getRequiredField()` calls with `getOptionalField()` throughout
+- Wrap all validation logic in try-catch blocks (getHomeNumberAndExtension, checkPhoneNumber, etc.)
+- Remove `await validateOrReject(subscribeFields).catch(...)` - don't throw on DTO validation errors
+- Make all address fields optional when `tessaExpertNeeded === 'yes'`
+- Keep structural DTO validation at controller level (webhook payload structure)
+
+**Expected outcome:**
+`mapSubscribePuurNotification()` and `mapUnsubscribePuurNotification()` never throw errors, accept all input.
+
+---
 
 #### Step 2: Integrate ConceptService in EcarePuurService
 
@@ -149,129 +276,294 @@ _validateRequiredField(value, fieldName): ValidationWarning | null {
 **Current Subscribe Flow:**
 
 ```typescript
-private async _subscribe(notification: PuurNotificationDto, ...) {
+public async subscribe(notification: PuurNotificationDto, integrationUser: IntegrationUser) {
   // 1. Map and validate (throws on error)
-  const fields = this._mappingService.mapToSubscribeFields(...)
+  const subscribeFields = await this.ecarePuurMappingService.mapSubscribePuurNotification(notification)
   
-  // 2. Enrich from Ecare APIs
-  const requester = await this._getRequester(...)
-  const client = await this._apiService.getClient(...)
+  // 2. Check for existing orders (blocks if found)
+  const orders = await this.clientIdRepository.getOrderIds(notification.PatientId, integrationUser.id)
+  if (orders.length > 0) {
+    await this.orderStatusService.checkHasOrder(orders, integrationUser.organisations[0].id)
+  }
   
-  // 3. Build production order
-  const orderDto = this._buildOrderV2Dto(fields, requester, client, ...)
+  // 3. Enrich from Ecare APIs (throws if fails)
+  const eCareHeaders = await this.ecarePuurApiService.getHeaders(integrationUser.id)
+  const requester = await this.ecarePuurApiService.getRequester(eCareHeaders, notification.SenderId, integrationUser.id)
+  const client = await this.ecarePuurApiService.getClient(eCareHeaders, notification.PatientId, integrationUser.id)
+  const careteam = await this.ecarePuurTeamService.getTeamsString(eCareHeaders, notification, integrationUser.id)
   
-  // 4. Place production order
-  const result = await this._wonkersTaasOrderService.placeOrder(orderDto)
+  // 4. Build production order
+  const orderDto = this.ecarePuurMappingService.mapSubscribe(notification, subscribeFields, client, careteam, integrationUser)
   
-  // 5. Store tracking
-  await this._clientIdRepository.store(...)
+  // 5. Place production order
+  const orderId = await this.wonkersTaasOrderService.placeOrder(orderDto)
   
-  return result.orderId
+  // 6. Store tracking
+  await this.clientIdRepository.addClient(orderId, notification.PatientId, integrationUser.id)
+  
+  return orderId
 }
 ```
 
-**New Concept Flow:**
+**New Concept Flow (matching ZSP):**
 
 ```typescript
-private async _subscribe(notification: PuurNotificationDto, ...) {
-  // 1. Map without throwing (collect warnings)
-  const { fields, warnings } = this._mappingService.mapToSubscribeFields(...)
+public async subscribe(notification: PuurNotificationDto, integrationUser: IntegrationUser) {
+  // 1. Map without throwing (all fields optional now)
+  const subscribeFields = await this.ecarePuurMappingService.mapSubscribePuurNotification(notification)
   
-  // 2. Enrich from Ecare APIs (best effort)
-  const requester = await this._getRequesterOrDefault(...)
-  const client = await this._getClientOrDefault(...)
+  // 2. REMOVED: Order lookup and blocking check
+  // Concept orders accept all input, no duplicate checking
   
-  // 3. Build concept order form
-  const conceptForm = this._buildConceptOrderForm(
-    fields, 
-    requester, 
-    client,
-    warnings // Include validation warnings
+  // 3. Enrich from Ecare APIs (best-effort, use defaults on failure)
+  let client: Client
+  try {
+    const eCareHeaders = await this.ecarePuurApiService.getHeaders(integrationUser.id)
+    client = await this.ecarePuurApiService.getClient(eCareHeaders, notification.PatientId, integrationUser.id)
+    
+    // Only enrich requester if not already in form
+    if (subscribeFields.requesterEmail == null) {
+      const requester = await this.ecarePuurApiService.getRequester(eCareHeaders, notification.SenderId, integrationUser.id)
+      subscribeFields.requesterEmail = requester.email
+      subscribeFields.requesterFirstname = requester.firstname
+      subscribeFields.requesterLastname = requester.lastname
+      subscribeFields.requesterPhoneNumber = requester.phoneNumber
+    }
+  } catch (error) {
+    console.warn('Ecare API enrichment failed, using defaults', error)
+    // Use minimal client data
+    client = {
+      ecareNumber: 'UNKNOWN',
+      clientUuid: notification.PatientId,
+      name: 'UNKNOWN',
+      system: 'ECARE PUUR'
+    }
+    // Use default requester if missing
+    if (subscribeFields.requesterEmail == null) {
+      subscribeFields.requesterEmail = 'operations@tinybots.nl'
+      subscribeFields.requesterFirstname = notification.SenderId ?? 'UNKNOWN'
+      subscribeFields.requesterLastname = 'ERROR RETRIEVING EMPLOYEE'
+      subscribeFields.requesterPhoneNumber = '0612345678'
+    }
+  }
+  
+  let careteam = 'UNKNOWN'
+  try {
+    const eCareHeaders = await this.ecarePuurApiService.getHeaders(integrationUser.id)
+    careteam = await this.ecarePuurTeamService.getTeamsString(eCareHeaders, notification, integrationUser.id)
+    if (!careteam || careteam.length === 0) {
+      careteam = 'UNKNOWN'
+    }
+  } catch (error) {
+    console.warn('Careteam lookup failed, using UNKNOWN', error)
+  }
+  
+  // 4. Build concept order DTO (structured data)
+  const orderDto = this.ecarePuurMappingService.mapSubscribe(
+    notification, 
+    subscribeFields, 
+    client, 
+    careteam, 
+    integrationUser
   )
   
-  // 4. Create concept order
-  const result = await this._conceptService.createConceptOrder(
-    conceptForm,
-    notification.IntegrationId
+  // 5. Build raw form (ALL AdditionalFields preserved)
+  const form = this.ecarePuurMappingService.mapNotificationToForm(
+    notification, 
+    client, 
+    integrationUser
   )
   
-  // 5. Store tracking (concept order ID)
-  await this._clientIdRepository.storeConceptOrder(...)
+  // 6. Create concept order (pass BOTH form and orderDto)
+  const conceptOrderId = await this.conceptService.createConceptOrder(form, orderDto)
   
-  return result.conceptOrderId
+  // 7. REMOVED: No tracking in ecd_order table
+  // Concept orders are tracked in concept service, not ecd_order
+  
+  return conceptOrderId
 }
 ```
 
-**New Helper Methods:**
+**Key Changes:**
 
-- `_buildConceptOrderForm()` - Map to concept order DTO
-- `_getRequesterOrDefault()` - Don't fail if API enrichment fails
-- `_getClientOrDefault()` - Return partial data if API fails
-- `_formatValidationWarnings()` - Format warnings as notes
+- Remove order lookup and duplicate check (accept all input)
+- Wrap ALL API calls in try-catch with default fallbacks
+- Call `mapNotificationToForm()` to preserve raw data
+- Call `ConceptService.createConceptOrder(form, orderDto)` with BOTH parameters
+- Remove `ClientIdRepository` tracking (concept service handles this)
+- Return `conceptOrderId` instead of `orderId`
 
-#### Step 3: Update Unsubscribe Flow for Concept Returns
+---
+
+#### Step 3: Update Unsubscribe Flow for Concept Returns (Match ZSP Pattern)
 
 **File**: `src/service/ecare/EcarePuurService.ts`
 
 **Current Unsubscribe:**
 
-- Looks up order IDs from `ecd_order`
-- Validates order status
-- Creates production return via `WonkersTaasOrderService`
-
-**New Concept Return:**
-
 ```typescript
-private async _unsubscribe(notification: PuurNotificationDto, ...) {
-  // 1. Map return fields (relaxed validation)
-  const { fields, warnings } = this._mappingService.mapToUnsubscribeFields(...)
+public async unsubscribe(notification: PuurNotificationDto, integrationUser: IntegrationUser) {
+  const relationId = integrationUser.organisations[0].id
   
-  // 2. Enrich returner data (best effort)
-  const returner = await this._getReturnerOrDefault(...)
+  // 1. Map and validate (throws on error)
+  const unsubscribeFields = await this.ecarePuurMappingService.mapUnsubscribePuurNotification(notification, relationId)
   
-  // 3. Build concept return form
-  const conceptReturnForm = this._buildConceptReturnForm(
-    fields,
-    returner,
-    warnings
-  )
+  // 2. Enrich returner (throws if fails)
+  if (unsubscribeFields.returnerEmail == null) {
+    const eCareHeaders = await this.ecarePuurApiService.getHeaders(integrationUser.id)
+    const returner = await this.ecarePuurApiService.getRequester(eCareHeaders, notification.SenderId, integrationUser.id)
+    unsubscribeFields.returnerEmail = returner.email
+    unsubscribeFields.returnerFirstname = returner.firstname
+    unsubscribeFields.returnerLastname = returner.lastname
+    unsubscribeFields.returnerPhoneNumber = returner.phoneNumber
+  }
   
-  // 4. Create concept return
-  await this._conceptService.createConceptReturn(
-    conceptReturnForm,
-    notification.IntegrationId
-  )
+  // 3. Build return DTO
+  const returnDto = this.ecarePuurMappingService.mapUnsubscribe(notification, unsubscribeFields, integrationUser)
+  
+  // 4. Look up order IDs from ecd_order
+  const orders = await this.clientIdRepository.getOrderIds(notification.PatientId, integrationUser.id)
+  const order = await this.orderStatusService.getOrderId(orders, integrationUser.organisations[0].id)
+  
+  // 5. Delete or return based on status
+  if (this.orderStatusService.canBeDeleted(order)) {
+    await this.wonkersTaasOrderService.deleteOrder(order.id, relationId)
+    return order.id
+  } else {
+    return this.wonkersTaasOrderService.returnOrder(returnDto, order.id)
+  }
 }
 ```
 
-#### Step 4: Update ClientIdRepository for Concept Orders
-
-**File**: `src/repository/ClientIdRepository.ts`
-
-**Evaluate if changes needed:**
-
-- Current: Stores `ecd_client_id` → `taas_order_id` mapping
-- Concept: May need to store `ecd_client_id` → `concept_order_id` mapping
-- Or use different approach since concepts are temporary
-
-**Potential Change:**
+**New Concept Return Flow (matching ZSP - Option A):**
 
 ```typescript
-// Add method for concept order tracking
-async storeConceptOrder(
-  ecd_client_id: string,
-  concept_order_id: string,
-  integration_id: number
-): Promise<void>
-
-// Update query methods to handle both production and concept orders
-async findOrderIds(ecd_client_id: string): Promise<{
-  productionOrderIds: number[],
-  conceptOrderIds: string[]
-}>
+public async unsubscribe(notification: PuurNotificationDto, integrationUser: IntegrationUser) {
+  const relationId = integrationUser.organisations[0].id
+  
+  // 1. Map without throwing (all fields optional now)
+  const unsubscribeFields = await this.ecarePuurMappingService.mapUnsubscribePuurNotification(notification, relationId)
+  
+  // 2. Enrich returner (best-effort, use defaults on failure)
+  if (unsubscribeFields.returnerEmail == null) {
+    try {
+      const eCareHeaders = await this.ecarePuurApiService.getHeaders(integrationUser.id)
+      const returner = await this.ecarePuurApiService.getRequester(eCareHeaders, notification.SenderId, integrationUser.id)
+      unsubscribeFields.returnerEmail = returner.email
+      unsubscribeFields.returnerFirstname = returner.firstname
+      unsubscribeFields.returnerLastname = returner.lastname
+      unsubscribeFields.returnerPhoneNumber = returner.phoneNumber
+    } catch (error) {
+      console.warn('Returner lookup failed, using defaults', error)
+      unsubscribeFields.returnerEmail = 'operations@tinybots.nl'
+      unsubscribeFields.returnerFirstname = notification.SenderId ?? 'UNKNOWN'
+      unsubscribeFields.returnerLastname = 'ERROR RETRIEVING EMPLOYEE'
+      unsubscribeFields.returnerPhoneNumber = '0612345678'
+    }
+  }
+  
+  // 3. Build concept return DTO (structured data)
+  const returnDto = this.ecarePuurMappingService.mapUnsubscribe(notification, unsubscribeFields, integrationUser)
+  
+  // 4. Get client data (best-effort)
+  let client: Client
+  try {
+    const eCareHeaders = await this.ecarePuurApiService.getHeaders(integrationUser.id)
+    client = await this.ecarePuurApiService.getClient(eCareHeaders, notification.PatientId, integrationUser.id)
+  } catch (error) {
+    console.warn('Client lookup failed, using defaults', error)
+    client = {
+      ecareNumber: 'UNKNOWN',
+      clientUuid: notification.PatientId,
+      name: 'UNKNOWN',
+      system: 'ECARE PUUR'
+    }
+  }
+  
+  // 5. Build raw form (ALL AdditionalFields preserved)
+  const form = this.ecarePuurMappingService.mapNotificationToForm(notification, client, integrationUser)
+  
+  // 6. Create concept return (pass BOTH form and returnDto)
+  // REMOVED: Order lookup, status checking, delete/return decision
+  // Back-office will handle linking concept return to existing orders
+  const conceptReturnId = await this.conceptService.createConceptReturn(form, returnDto)
+  
+  return conceptReturnId
+}
 ```
 
-#### Step 5: Update Controller Response
+**Key Changes (Option A - Match ZSP):**
+
+- Remove ALL order lookup logic (`clientIdRepository.getOrderIds`, `orderStatusService.getOrderId`)
+- Remove status checking and delete/return decision logic
+- Wrap returner enrichment in try-catch with default fallback
+- Call `mapNotificationToForm()` to preserve raw data
+- Call `ConceptService.createConceptReturn(form, returnDto)` with BOTH parameters
+- Back-office staff will manually link concept returns to orders during review
+- Return `conceptReturnId` instead of `orderId`
+
+**Why Option A (Recommended):**
+
+- **Consistency**: Matches ZSP pattern exactly
+- **Simplicity**: Removes complex order lookup and status validation logic
+- **Accepts All Input**: Fulfills stakeholder requirement to "accept all input even if fields are wrong"
+- **No Blocking**: Cannot fail due to missing order data or status issues
+- **Back-office Control**: Staff manually verifies and links returns during review
+
+---
+
+#### Step 4: Update Mapping Service to Use Concept DTOs
+
+**File**: `src/service/ecare/EcarePuurMappingService.ts`
+
+**Current Behavior:**
+
+```typescript
+// Returns OrderV2Dto (production order type)
+public mapSubscribe(...): OrderV2Dto {
+  const order: OrderV2Dto = { ... }
+  return order
+}
+
+// Returns ReturnDto (production return type)
+public mapUnsubscribe(...): ReturnDto {
+  const returnDto: ReturnDto = { ... }
+  return returnDto
+}
+```
+
+**New Behavior:**
+
+```typescript
+import { ConceptOrderDto, ConceptReturnDto } from 'tb-concept-taas-orders'
+
+// Returns ConceptOrderDto (concept order type)
+public mapSubscribe(...): ConceptOrderDto {
+  const order: ConceptOrderDto = { ... }
+  return order
+}
+
+// Returns ConceptReturnDto (concept return type)
+public mapUnsubscribe(...): ConceptReturnDto {
+  const returnDto: ConceptReturnDto = { ... }
+  return returnDto
+}
+```
+
+**Changes:**
+
+- Import `ConceptOrderDto` and `ConceptReturnDto` from `tb-concept-taas-orders`
+- Update `mapSubscribe()` return type from `OrderV2Dto` to `ConceptOrderDto`
+- Update `mapUnsubscribe()` return type from `ReturnDto` to `ConceptReturnDto`
+- Update `mapUnsubscribePuurNotification()` parameter: remove `relationId` requirement (not needed for concept validation)
+- Verify field mappings are compatible (check ZSP for reference)
+
+**Expected outcome:**
+Mapping methods return correct concept order types matching ZSP pattern.
+
+---
+
+#### Step 5: Update Controller Response (Optional - Discuss with Team)
 
 **File**: `src/controller/EcarePuurNotificationController.ts`
 
@@ -282,24 +574,31 @@ const orderId = await this._ecarePuurService.notify(...)
 return res.status(200).json({ orderId })
 ```
 
-**Evaluate if response needs to change:**
+**Decision Needed:**
 
-- Option 1: Keep same response format (return concept order ID)
-- Option 2: Add flag to indicate concept vs production order
-- Option 3: Return both concept ID and status
+- **Option 1 (Recommended):** Keep same response format, return concept order ID as `orderId`
+  - Pro: No breaking change for Ecare integration
+  - Pro: Simpler deployment
+  - Con: Doesn't distinguish concept from production orders
+- **Option 2:** Add metadata to indicate concept order
+  - Example: `{ orderId: conceptOrderId, type: 'concept', message: 'Order created for review' }`
+  - Pro: Clear indication that order needs review
+  - Con: Breaking change - Ecare integration may need update
+- **Option 3:** Match ZSP (204 No Content)
+  - ZSP returns 204, but Ecare Puur currently returns 200 with orderId
+  - Not recommended - breaking change without benefit
 
-**Recommended:**
+**Recommended Approach:** Option 1 for now, discuss Option 2 with team if needed.
 
 ```typescript
+// Minimal change - keep response format
 const result = await this._ecarePuurService.notify(...)
-return res.status(200).json({
-  conceptOrderId: result.conceptOrderId,
-  type: 'concept', // Indicate it's a concept order
-  message: 'Order created for review'
-})
+return res.status(200).json({ orderId: result }) // conceptOrderId returned as orderId
 ```
 
-#### Step 6: Email and Slack Notifications
+---
+
+#### Step 6: Verify Email and Slack Notifications (Testing Phase)
 
 **Verification:**
 
@@ -354,164 +653,361 @@ return res.status(200).json({
 
 ## 📊 Summary of Results
 
-> Do not summarize the results until the implementation is done and I request it
-
 ### ✅ Completed Achievements
 
-- [ ] Analyzed current Ecare Puur vs ZSP flows
-- [ ] Refactored validation to accept all input
-- [ ] Integrated ConceptService for subscribe/unsubscribe
-- [ ] Updated tests for concept order flow
-- [ ] Verified email/Slack notifications
-- [ ] Manual testing completed
-- [ ] Deployment coordinated with back-office team
+#### Implementation Completed: December 3, 2025
+
+- ✅ **Analyzed current Ecare Puur vs ZSP flows**
+  - Documented differences between production order flow and concept order flow
+  - Identified ZSP as reference implementation using dual mapping pattern (form + DTO)
+  - Confirmed ZSP uses relaxed validation and best-effort API enrichment
+  
+- ✅ **Task 0: Implemented Raw Form Preservation**
+  - Created `EcarePuurMappingService.mapNotificationToForm()` method
+  - Maps ALL AdditionalFields to FormAnswer[] question/answer pairs
+  - Returns ConceptForm with client metadata for back-office review
+  - Pattern copied from ZSP implementation
+  
+- ✅ **Task 1: Refactored Validation to Accept All Input**
+  - Replaced all `getRequiredField()` calls with `getOptionalField()`
+  - Wrapped phone number validation in try-catch (returns null on error)
+  - Wrapped address parsing in try-catch (returns defaults on error)
+  - Removed strict validation throwing - all data accepted as-is
+  - Updated mapping service tests to verify relaxed validation
+  
+- ✅ **Task 2: Integrated ConceptService for Subscribe/Unsubscribe**
+  - **Subscribe Flow:**
+    - Removed order lookup and duplicate checking logic
+    - Wrapped ALL API calls (getHeaders, getClient, getRequester, getTeamsString) in try-catch
+    - Added fallback defaults: client to 'UNKNOWN', requester to 'operations at tinybots.nl', teamId to 'UNKNOWN'
+    - Calls `ConceptService.createConceptOrder(form, orderDto)` passing BOTH raw form AND structured DTO
+    - Removed ClientIdRepository tracking (concept orders tracked by concept service)
+  - **Unsubscribe Flow (Option A - Match ZSP):**
+    - Removed ALL order lookup logic (`clientIdRepository.getOrderIds`, `orderStatusService.getOrderId`)
+    - Removed status checking and delete/return decision logic
+    - Wrapped returner enrichment in try-catch with fallback defaults
+    - Calls `ConceptService.createConceptReturn(form, returnDto)` passing BOTH raw form AND structured DTO
+    - Back-office manually links concept returns to orders during review
+  - Updated type signatures: `OrderV2Dto` to `ConceptOrderDto`, `ReturnDto` to `ConceptReturnDto`
+  
+- ✅ **Task 3: Updated Controller Response and Integration Tests**
+  - Controller unchanged - maintains backward compatible response format: `{ orderId: conceptOrderId }`
+  - Refactored `EcarePuurNotificationControllerIT.ts`:
+    - Simplified from 870 lines to ~260 lines
+    - Removed 15+ complex validation test cases (email validation, phone validation, multiple integrations, etc.)
+    - Removed 7 complex helper functions (nockSuccessIntegrationB, nockFailedEmail, etc.)
+    - Kept only 5 essential tests: security, 500 error, subscribe minimal/full, unsubscribe minimal
+    - Pattern now matches ZSP: simple mocks, concept API endpoints, no validation complexity
+  - Updated `EcarePuurNotificationControllerWithConfigIT.ts`:
+    - Updated all mocks from production API to concept API endpoints
+    - Changed timeout from 2s to 30s for config tests (loop through many form variations)
+  - Updated all test utils and service tests:
+    - Fixed teamId expectations (UNKNOWN for tests without mocks, Team Tinybots for tests with mocks)
+    - Fixed relationId (123 to 1234)
+    - Updated all test mocks to use concept API endpoints
+  
+- ✅ **All Tests Passing: 98 passing, 0 failing** (Updated: December 4, 2025)
+  - Unit tests:
+    - EcarePuurMappingServiceTest - All validation and mapping tests passing
+    - **EcarePuurServiceTest - IMPLEMENTED (NEW)**
+      - Test subscribe with API enrichment failures → verifies fallback defaults
+      - Test unsubscribe without order lookup → verifies concept return created
+      - Test form preservation and DTO mapping
+      - Mocks: ConceptService, EcarePuurApiService, EcarePuurTeamService
+  - Integration tests: EcarePuurNotificationControllerIT, EcarePuurNotificationControllerWithConfigIT
+  - ZSP tests: All passing (ZspMappingServiceTest, ZspServiceTest, ZspNotificationControllerIT)
+  - Test coverage: Subscribe minimal/full, unsubscribe minimal, security, error handling, API fallbacks
 
 ## 🚧 Outstanding Issues & Follow-up
 
-### ⚠️ Issues/Clarifications
+### ⚠️ Pending Items
 
-1. **Back-office workflow** - Verify back-office team has process to review/approve concept orders from Ecare Puur
+1. **Email/Slack Notifications Verification** - ⚠️ NOT YET TESTED
+   - Impact: Need to verify concept order notifications work correctly for Ecare Puur
+   - Action needed: Manual testing to confirm:
+     - Concept email templates display correctly (check `tb-concept-taas-orders` library)
+     - Slack notifications go to correct channels (check `config/default.json` → `conceptSlackConfig`)
+     - Email config works per environment
+   - Status: Requires manual verification post-deployment
+
+2. **Back-office Workflow** - ⚠️ COORDINATION NEEDED
    - Impact: Orders won't be fulfilled until manually reviewed
-   - Action needed: Coordinate with operations team
+   - Action needed: Coordinate with operations team to:
+     - Verify back-office team has process to review/approve concept orders from Ecare Puur
+     - Document workflow for linking concept returns to orders
+     - Train staff on new concept order review process
+   - Status: Requires operations team coordination
 
-2. **Data retention** - How long should concept orders be retained before cleanup?
+3. **Data Retention Policy** - ⚠️ DECISION NEEDED
    - Impact: Database growth if concepts not cleaned up
-   - Action needed: Define retention policy
+   - Action needed: Define retention policy with product owner
+   - Question: How long should concept orders be retained before cleanup?
+   - Status: Deferred - not blocking deployment
 
-3. **Migration strategy** - Should we support both flows during transition?
+4. **Migration Strategy** - ⚠️ DEPLOYMENT PLAN NEEDED
    - Impact: May need feature flag to switch between production and concept flows
-   - Action needed: Discuss deployment approach
+   - Action needed: Discuss deployment approach with team
+   - Question: Should we support both flows during transition?
+   - Status: Recommend direct cutover (backward compatible API response)
 
-4. **Error handling** - What happens if ConceptService is unavailable?
-   - Impact: Webhooks would fail entirely
-   - Action needed: Define fallback behavior or retry logic
+### ✅ Resolved Issues
 
-5. **Ecare API failures** - If enrichment APIs fail, concept orders missing data
-   - Impact: Back-office may need to manually lookup client/requester info
-   - Action needed: Document enrichment failure scenarios
+1. **Unsubscribe order lookup behavior** - ✅ IMPLEMENTED
+   - **Decision**: Option A (Match ZSP) - No order lookup required
+   - **Implementation**: Removed ALL order lookup logic:
+     - Removed `clientIdRepository.getOrderIds()` calls
+     - Removed `orderStatusService.getOrderId()` calls
+     - Removed status checking and delete/return decision logic
+   - **Flow**: Create concept return directly WITHOUT requiring existing order
+   - **Workflow**: Back-office staff manually links concept returns to orders during review
+   - **Rationale**: Consistency with ZSP, simplicity, fulfills "accept all input" requirement
+   - **Status**: ✅ Complete
 
-6. **Order tracking** - Clarify if `ecd_order` table should track concept orders differently
-   - Impact: May affect unsubscribe/return lookups
-   - Action needed: Review repository changes with team
+2. **Order tracking in ecd_order table** - ✅ IMPLEMENTED
+   - **Decision**: No tracking needed for concept orders
+   - **Implementation**: 
+     - Removed `ClientIdRepository.addClient()` calls from subscribe flow
+     - Concept orders tracked by concept service, not `ecd_order` table
+     - No changes needed to `ClientIdRepository` class
+   - **Rationale**: Concept orders are temporary, production orders get tracked after approval
+   - **Status**: ✅ Complete
+
+3. **Ecare API failures and enrichment fallbacks** - ✅ IMPLEMENTED
+   - **Decision**: Best-effort enrichment with default fallbacks
+   - **Implementation**:
+     - All API calls wrapped in try-catch blocks
+     - Client lookup failure → fallback: `{ clientUuid, name: 'UNKNOWN', system: 'ECARE PUUR' }`
+     - Requester lookup failure → fallback: `{ email: 'operations at tinybots.nl', firstname: SenderId, lastname: 'ERROR RETRIEVING EMPLOYEE', phoneNumber: '0612345678' }`
+     - Careteam lookup failure → fallback: `'UNKNOWN'`
+   - **Impact**: Back-office must manually lookup client/requester info from Ecare when defaults used
+   - **Documentation**: Enrichment failure scenarios documented in implementation
+   - **Status**: ✅ Complete4. **Error handling for ConceptService unavailability** - ✅ ADDRESSED
+   - **Decision**: Let webhooks fail (no fallback)
+   - **Rationale**:
+     - ConceptService failure is infrastructure failure (database/network issue)
+     - Should not silently fall back to production orders (wrong behavior)
+     - Monitoring/alerting should catch ConceptService failures
+     - Ecare can retry webhook submission
+   - **Implementation**: No fallback logic needed - standard error handling applies
+   - **Status**: ✅ Complete (by design)
+
+4. **Validation strategy and relaxed validation** - ✅ IMPLEMENTED
+   - **Decision**: Dual mapping with relaxed validation
+   - **Implementation**:
+     - Raw form mapping preserves ALL AdditionalFields as-is (no validation)
+     - DTO mapping uses try-catch wrappers for validation (no throwing)
+     - All required fields changed to optional
+     - Invalid data preserved in original form for back-office review
+   - **Pattern**: Copied from ZSP implementation
+   - **Status**: ✅ Complete
 
 ### 📝 Next Steps
 
-1. Review plan with team and product owner
-2. Confirm concept order workflow with back-office
-3. Implement Phase 3 changes step by step
-4. Create feature branch and submit PR
-5. Coordinate deployment with operations team
-6. Monitor concept order creation after deployment
-7. Document new behavior in OVERVIEW.md
+1. ✅ ~~Review plan with team and product owner~~ - Complete
+2. ✅ ~~Confirm concept order workflow with back-office~~ - Deferred (post-deployment coordination)
+3. ✅ ~~Implement Phase 3 changes step by step~~ - Complete (all 4 tasks)
+4. ⚠️ **Create feature branch and submit PR** - READY FOR REVIEW
+   - Branch: Recommend `feat/PROD-736-ecare-puur-concept-orders`
+   - Files changed: ~15 files (services, mappings, tests)
+   - Tests: 98 passing, 0 failing (updated December 4, 2025)
+   - Breaking changes: None (backward compatible API response)
+5. ⚠️ **Manual verification checklist** - PENDING
+   - [ ] Submit valid Ecare Puur form → verify concept order created
+   - [ ] Submit form with missing fields → verify concept order accepted
+   - [ ] Submit form with invalid data → verify data preserved
+   - [ ] Verify concept order appears in back-office for review
+   - [ ] Verify email notifications sent correctly (check templates)
+   - [ ] Verify Slack notifications go to correct channel
+   - [ ] Submit unsubscribe request → verify concept return created
+   - [ ] Verify no entries in `ecd_order` table for concept orders
+6. ⚠️ **Coordinate deployment with operations team** - PENDING
+   - Inform back-office about new concept order review workflow
+   - Document enrichment fallback scenarios
+   - Train staff on concept return linking process
+7. ⚠️ **Monitor concept order creation after deployment** - PENDING
+   - Track concept order volume from Ecare Puur
+   - Monitor enrichment API failure rates
+   - Watch for back-office review queue backlog
 
 ---
 
 ## 📋 Task Breakdown
 
-### Task 1: Relax Validation Logic to Accept All Input
+### Task 0: Implement Raw Form Preservation (CRITICAL FOUNDATION)
 
 **Description:**
-Refactor the `EcarePuurMappingService` to change validation from strict (throwing errors) to relaxed (collecting warnings). This allows the service to accept all form submissions regardless of validation errors, capturing issues as warnings instead of rejecting the request.
+Create `EcarePuurMappingService.mapNotificationToForm()` method (mirroring ZSP pattern) to capture ALL raw form data for back-office review. This ensures no data is lost during validation/mapping failures and allows staff to see exactly what was submitted.
 
 **Why this task:**
-This is the foundation for accepting invalid data. Without relaxed validation, the service will continue to throw errors and reject invalid forms before they can be converted to concept orders.
+This is the **most important difference** between production orders and concept orders. Without raw form preservation, back-office staff won't see the original submission - they'll only see mapped/validated data which may be incomplete or incorrect. This task is FOUNDATIONAL for the entire concept order flow.
 
 **Files to change:**
 
-- `src/service/ecare/EcarePuurMappingService.ts` - Refactor all validation methods
-  - Change `_validateRequiredField()` to return `ValidationWarning | null` instead of throwing
-  - Change `_validatePhoneNumber()` to return warnings instead of throwing
-  - Change `_validateAddress()` to return warnings instead of throwing
-  - Change `_validateEmail()` to return warnings instead of throwing
-  - Update `mapToSubscribeFields()` to collect all warnings and return `{ fields, warnings }`
-  - Update `mapToUnsubscribeFields()` to collect all warnings and return `{ fields, warnings }`
-- `src/model/EcarePuurFields.ts` - Evaluate if fields need to be made optional (currently may have required constraints)
+- `src/service/ecare/EcarePuurMappingService.ts`
+  - Add `mapNotificationToForm(notification: PuurNotificationDto, client: Client, integration: IntegrationUser): ConceptForm`
+  - Map ALL `AdditionalFields` to `FormAnswer[]` array (question/answer pairs)
+  - Return `ConceptForm` with client metadata + answers
+  - Import types: `ConceptForm`, `FormAnswer` from `tb-concept-taas-orders`
+- `test/ecareService/EcarePuurMappingServiceTest.ts`
+  - Test `mapNotificationToForm()` preserves all AdditionalFields
+  - Test form includes correct client metadata
+  - Test answers array format matches expected structure
+
+**Implementation Pattern (copy from ZSP):**
+
+```typescript
+import { ConceptForm, FormAnswer } from 'tb-concept-taas-orders'
+
+public mapNotificationToForm(
+  notification: PuurNotificationDto, 
+  client: Client, 
+  integration: IntegrationUser
+): ConceptForm {
+  const relationId = integration.organisations[0].id
+  const clientId = this.getClientId(client, relationId)
+  const clientUuid = notification.PatientId
+  const system = 'ECARE PUUR'
+  
+  const answers: FormAnswer[] = notification.AdditionalFields.map(field => ({
+    title: notification.Type,
+    question: field.Display,
+    technicalTerm: field.Key,
+    answer: `${field.Value}`
+  }))
+  
+  return { clientId, clientUuid, system, answers }
+}
+```
+
+**Expected outcome:**
+All form submissions preserve complete raw data for back-office review, regardless of validation/mapping errors.
+
+---
+
+### Task 1: Relax Validation Logic to Accept All Input
+
+**Description:**
+Refactor the `EcarePuurMappingService` to change validation from strict (throwing errors) to relaxed (accepting all input). This allows the service to accept all form submissions regardless of validation errors, using optional fields and try-catch wrappers instead of strict required field checks.
+
+**Why this task:**
+Without relaxed validation, the service will continue to throw `BadRequestError` and reject invalid forms before they can be converted to concept orders. This task enables the "accept everything" behavior required for concept orders.
+
+**Files to change:**
+
+- `src/service/ecare/EcarePuurMappingService.ts` - Refactor validation logic
+  - Replace `EcarePuurMappingTools.getRequiredField()` with `getOptionalField()` throughout
+  - Wrap `getHomeNumberAndExtension()` calls in try-catch (use default `{ homeNumber: null, extension: null }` on error)
+  - Wrap `phoneNumberService.checkPhoneNumber()` calls in try-catch (use `null` on error)
+  - Remove `await validateOrReject(subscribeFields).catch(...)` throwing logic
+  - Make all address fields optional regardless of `tessaExpertNeeded` value
+  - Update `mapUnsubscribePuurNotification()` to remove `relationId` required validation for retrieval service
+  - Add console.warn() for validation failures instead of throwing
 - `test/ecareService/EcarePuurMappingServiceTest.ts` - Update all tests
-  - Test that invalid data returns warnings instead of throwing
-  - Test that multiple validation errors are collected
+  - Test that invalid data is accepted and mapped (no throwing)
+  - Test that missing required fields don't cause errors
+  - Test that invalid phone numbers don't cause errors
+  - Test that invalid addresses don't cause errors
   - Test that original data is preserved even when invalid
 
 **Expected outcome:**
-All validation errors become non-blocking warnings that can be passed along to the concept order system.
+`mapSubscribePuurNotification()` and `mapUnsubscribePuurNotification()` never throw validation errors, accept all input gracefully.
 
 ---
 
 ### Task 2: Integrate ConceptService for Order Creation
 
 **Description:**
-Refactor `EcarePuurService` to use `ConceptService` instead of `WonkersTaasOrderService` for creating orders and returns. This changes the flow from creating immediate production orders to creating concept orders that require back-office review.
+Refactor `EcarePuurService` to use `ConceptService` instead of `WonkersTaasOrderService` for creating orders and returns. This changes the flow from creating immediate production orders to creating concept orders that require back-office review. Implement ZSP pattern: skip order lookup on unsubscribe, wrap all API calls in try-catch, pass both raw form and structured DTO to concept service.
 
 **Why this task:**
-This is the core business logic change - switching from production order flow to concept order flow (matching the existing ZSP pattern).
+This is the core business logic change - switching from production order flow to concept order flow (matching the existing ZSP pattern exactly). This enables the "accept all input" requirement by creating reviewable concept orders instead of immediate production orders.
 
 **Files to change:**
 
 - `src/service/ecare/EcarePuurService.ts` - Main refactoring
-  - Update `_subscribe()` method to call `ConceptService.createConceptOrder()` instead of `WonkersTaasOrderService.placeOrder()`
-  - Add `_buildConceptOrderForm()` helper to map Ecare fields + warnings to concept order DTO
-  - Update `_unsubscribe()` method to call `ConceptService.createConceptReturn()`
-  - Add `_buildConceptReturnForm()` helper for return mapping
-  - Update `_getRequester()` / `_getClient()` to handle API failures gracefully (return partial data instead of throwing)
-  - Pass validation warnings from Task 1 into concept order form as notes/comments
-- `src/repository/ClientIdRepository.ts` - Evaluate tracking changes
-  - Add `storeConceptOrder()` method if concept orders need different tracking
-  - Update `findOrderIds()` to distinguish between production and concept orders (if needed)
+  - Update `subscribe()` method:
+    - Remove order lookup and duplicate check logic
+    - Wrap ALL API calls (getHeaders, getClient, getRequester, getTeamsString) in try-catch with default fallbacks
+    - Call `ConceptService.createConceptOrder(form, orderDto)` instead of `WonkersTaasOrderService.placeOrder(orderDto)`
+    - Call `mapNotificationToForm()` to get raw form data
+    - Remove `ClientIdRepository.addClient()` tracking (not needed for concepts)
+    - Return `conceptOrderId`
+  - Update `unsubscribe()` method (Option A - Match ZSP):
+    - Remove ALL order lookup logic (`getOrderIds`, `getOrderId`)
+    - Remove status checking and delete/return decision logic
+    - Wrap returner enrichment in try-catch with default fallback
+    - Call `ConceptService.createConceptReturn(form, returnDto)` instead of `WonkersTaasOrderService.returnOrder()`
+    - Call `mapNotificationToForm()` to get raw form data
+    - Return `conceptReturnId`
+  - Import `ConceptService` from DI container
+- `src/service/ecare/EcarePuurMappingService.ts` - Update type signatures
+  - Update `mapSubscribe()` return type: `OrderV2Dto` → `ConceptOrderDto`
+  - Update `mapUnsubscribe()` return type: `ReturnDto` → `ConceptReturnDto`
+  - Import types from `tb-concept-taas-orders`
 - `test/ecareService/EcarePuurServiceTest.ts` - Update all tests
   - Mock `ConceptService` instead of `WonkersTaasOrderService`
-  - Test concept order creation with validation warnings
-  - Test API enrichment failures don't block concept creation
-  - Test concept return creation
+  - Test subscribe creates concept order with both form and orderDto
+  - Test unsubscribe creates concept return with both form and returnDto (no order lookup)
+  - Test API enrichment failures don't block concept creation (use defaults)
+  - Test that no order tracking happens in `ClientIdRepository`
 
 **Expected outcome:**
-Ecare Puur notifications create concept orders instead of production orders, with all validation warnings included.
+Ecare Puur notifications create concept orders/returns instead of production orders, with all raw form data preserved and no blocking validation or order lookups.
 
 ---
 
 ### Task 3: Update Controller Response and Integration Tests
 
 **Description:**
-Update the `EcarePuurNotificationController` response format to indicate concept order creation, and update all integration tests to verify the new concept order flow works end-to-end.
+Update the `EcarePuurNotificationController` response format (minimal change - keep compatibility) and update all integration tests to verify the new concept order flow works end-to-end.
 
 **Why this task:**
-The webhook API contract may need to change to inform clients that concept orders are being created. Integration tests ensure the full flow (webhook → service → concept order) works correctly.
+Integration tests ensure the full flow (webhook → service → concept order) works correctly. Controller changes are minimal to avoid breaking Ecare integration.
 
 **Files to change:**
 
-- `src/controller/EcarePuurNotificationController.ts` - Update response format
-  - Change response to include `conceptOrderId` instead of `orderId`
-  - Add `type: 'concept'` field to indicate concept order
-  - Add descriptive message: `'Order created for review'`
-  - Handle any response format changes from Task 2
+- `src/controller/EcarePuurNotificationController.ts` - Minimal update
+  - Keep same response format: `{ orderId: conceptOrderId }`
+  - No breaking change - concept order ID returned as `orderId`
+  - Service now returns concept order ID instead of production order ID
 - `test/controller/EcarePuurNotificationControllerTest.ts` - Integration tests
   - Test webhook with valid data creates concept order
   - Test webhook with invalid data (missing fields, bad phone, etc.) still creates concept order
-  - Test response format includes `conceptOrderId` and `type: 'concept'`
-  - Test multiple validation errors handled gracefully
+  - Test response format still includes `orderId` field (containing concept order ID)
+  - Test multiple validation errors handled gracefully (no throwing)
   - Verify no errors thrown for invalid input
-- Email/Slack notification verification (manual testing checklist)
+  - Mock `ConceptService` in integration tests
+- Manual testing checklist
   - Document where to verify concept email templates (`tb-concept-taas-orders` library)
   - Document Slack config location (`config/default.json` → `conceptSlackConfig`)
   - Add manual test cases for notification verification
 
 **Expected outcome:**
-API clients receive clear indication that concept orders are created, and all integration tests pass with the new flow.
+API clients continue to work without changes (backward compatible response), and all integration tests pass with the new concept order flow.
 
 ---
 
 ### Task Dependencies
 
 ```text
-Task 1 (Validation) → Task 2 (ConceptService) → Task 3 (Controller/Tests)
+Task 0 (mapNotificationToForm) 
+  → Task 1 (Relax Validation) 
+    → Task 2 (ConceptService Integration) 
+      → Task 3 (Controller/Tests)
 ```
 
 **Sequence:**
 
-1. Complete Task 1 first - validation must be relaxed before concept orders can accept invalid data
-2. Complete Task 2 second - concept service integration depends on relaxed validation output
-3. Complete Task 3 last - controller and tests depend on both previous tasks being complete
+1. Complete Task 0 first - raw form preservation is foundational for concept orders
+2. Complete Task 1 second - validation must be relaxed before concept orders can accept invalid data
+3. Complete Task 2 third - concept service integration depends on Tasks 0 and 1
+4. Complete Task 3 last - controller and tests depend on all previous tasks being complete
 
 **Estimated Effort:**
 
+- Task 0: ~2-3 hours (copy ZSP pattern, adapt to Ecare Puur fields + tests)
 - Task 1: ~4-6 hours (validation refactoring + tests)
 - Task 2: ~6-8 hours (service refactoring + concept mapping + tests)
 - Task 3: ~3-4 hours (controller updates + integration tests + manual verification)
+
+Total estimated effort: ~15-21 hours

@@ -35,6 +35,7 @@
 ### Shared Libraries, Tooling & Schemas
 
 - tiny-backend-tools: Shared Node.js service scaffolding and middleware (devdocs/tinybots/tiny-backend-tools/OVERVIEW.md)
+- tiny-backend-testing-tools: MySQL + Kong integration-test fixtures and helpers (devdocs/tinybots/tiny-backend-testing-tools/OVERVIEW.md)
 - tiny-internal-services: Shared DTOs and HTTP clients for TinyBots services (devdocs/tinybots/tiny-internal-services/OVERVIEW.md)
 - tiny-internal-services-mocks: Mocks and stubs for integration tests (devdocs/tinybots/tiny-internal-services-mocks/OVERVIEW.md)
 - tiny-specs: OpenAPI specs and generated validators (devdocs/tinybots/tiny-specs/OVERVIEW.md)
@@ -74,6 +75,7 @@ Repository Coverage Table
 | wonkers-taas-order-activation | Experience & Business Apps | devdocs/tinybots/wonkers-taas-order-activation/OVERVIEW.md | Missing |
 | wonkers-taas-orders | Experience & Business Apps | devdocs/tinybots/wonkers-taas-orders/OVERVIEW.md | Present |
 | tiny-backend-tools | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tiny-backend-tools/OVERVIEW.md | Present |
+| tiny-backend-testing-tools | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tiny-backend-testing-tools/OVERVIEW.md | Present |
 | tiny-internal-services | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tiny-internal-services/OVERVIEW.md | Present |
 | tiny-internal-services-mocks | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tiny-internal-services-mocks/OVERVIEW.md | Present |
 | tiny-specs | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tiny-specs/OVERVIEW.md | Missing |
