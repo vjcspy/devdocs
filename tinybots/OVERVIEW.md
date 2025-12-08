@@ -39,8 +39,8 @@
 - tiny-internal-services: Shared DTOs and HTTP clients for TinyBots services (devdocs/tinybots/tiny-internal-services/OVERVIEW.md)
 - tiny-internal-services-mocks: Mocks and stubs for integration tests (devdocs/tinybots/tiny-internal-services-mocks/OVERVIEW.md)
 - tiny-specs: OpenAPI specs and generated validators (devdocs/tinybots/tiny-specs/OVERVIEW.md)
-- typ-e: Java-based MySQL schema definitions for core robots (devdocs/tinybots/typ-e/OVERVIEW.md)
-- wonkers-db: Dashboard and TaaS MySQL schema management (devdocs/tinybots/wonkers-db/OVERVIEW.md)
+- typ-e: Java-based MySQL schema defined via Flyway migrations in `src/main/resources/db/migration` (devdocs/tinybots/typ-e/OVERVIEW.md)
+- wonkers-db: Dashboard and TaaS MySQL schema managed by Flyway migrations in `src/main/resources/db/migration` (devdocs/tinybots/wonkers-db/OVERVIEW.md)
 
 ## Cross-Service Data Flows
 
@@ -55,6 +55,7 @@
 - Kong middleware from tiny-backend-tools provides auth and request context; tiny-internal-services supplies HTTP clients and DTOs; tiny-internal-services-mocks supports isolated tests.
 - SQS queues, cron jobs, and long-lived connectors power automation; validate OpenAPI and schema compatibility against tiny-specs and database schemas before deploys.
 - Keep repo-specific runbooks under devdocs/tinybots/<repo>/OVERVIEW.md up to date, especially for repos currently missing overviews.
+- Database schemas are generated via the devtools Prisma setup; consult `devtools/prisma/tinybots/schema.prisma` for the TinyBots DB and `devtools/prisma/dashboard/schema.prisma` for the Dashboard DB before changing or inspecting table definitions.
 
 Repository Coverage Table
 
@@ -79,5 +80,5 @@ Repository Coverage Table
 | tiny-internal-services | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tiny-internal-services/OVERVIEW.md | Present |
 | tiny-internal-services-mocks | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tiny-internal-services-mocks/OVERVIEW.md | Present |
 | tiny-specs | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tiny-specs/OVERVIEW.md | Missing |
-| typ-e | Shared Libraries, Tooling & Schemas | devdocs/tinybots/typ-e/OVERVIEW.md | Missing |
-| wonkers-db | Shared Libraries, Tooling & Schemas | devdocs/tinybots/wonkers-db/OVERVIEW.md | Missing |
+| typ-e | Shared Libraries, Tooling & Schemas | devdocs/tinybots/typ-e/OVERVIEW.md | Present |
+| wonkers-db | Shared Libraries, Tooling & Schemas | devdocs/tinybots/wonkers-db/OVERVIEW.md | Present |
