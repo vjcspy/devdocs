@@ -13,20 +13,20 @@
 ## User Requirements
 
 ```text
-GET /v1/triggers/setting
+GET /v1/triggers/settings
 return all active trigger settings (is_default=1)
 same permissions as PUT
 ```
 
 ## 🎯 Objective
 
-Implement a new GET endpoint at `/v1/triggers/setting` that retrieves all active trigger settings (where `is_default=1`) from the database. The endpoint must enforce the same authentication and authorization constraints as the existing PUT endpoint (`/v1/triggers/settings`).
+Implement a new GET endpoint at `/v1/triggers/settings` that retrieves all active trigger settings (where `is_default=1`) from the database. The endpoint must enforce the same authentication and authorization constraints as the existing PUT endpoint (`/v1/triggers/settings`).
 
 ### ⚠️ Key Considerations
 
 1. **Permission Reuse**: The endpoint must use the same permission validation as PUT endpoint: Kong header validation, admin validator, and `Permission.M_O_TRIGGERS_SETTING_WRITE_ALL`
 2. **Database Query**: Filter by `IS_DEFAULT = TRUE` (represented as `1` in MySQL TINYINT)
-3. **Naming Consistency**: Note the URL path uses singular `/setting` (vs existing `/settings` plural on PUT)
+3. **Naming Consistency**: Uses plural `/v1/triggers/settings` to follow REST conventions (returns collection/array)
 4. **Response Format**: Return array of `EventTriggerSettingDomain` serialized to JSON with HH:mm time formatting
 5. **No Pagination**: Initial implementation returns all active settings without pagination (consistent with existing repository patterns)
 6. **Caching**: Not required for initial implementation (cache service is for scheduler workflow, not API reads)

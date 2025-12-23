@@ -227,21 +227,28 @@ For triggered executions, we will:
 
 ## 🎯 Objective
 
-Extend micro-manager's script execution storage to support **trigger-initiated (unscheduled) scripts**, enabling:
+Extend micro-manager's script execution storage to support **trigger-initiated scripts** alongside existing scheduled executions, enabling:
 
 - Full execution history for event-driven automation
 - Traceability from trigger event → script execution → step-by-step results
 - Same data fidelity as scheduled executions (steps, timestamps, execution data)
 - Foundation for trigger-based analytics and debugging
 
+### ✅ Implementation Strategy (Option C)
+
+**Separate Endpoints with Shared Logic:**
+
+1. **Keep Existing**: `PUT /v2/scripts/robot/scripts/:scriptReferenceId/executions/:scheduleId` - No changes to scheduled flow
+2. **Add New**: `PUT /v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:triggeringEventId` - For triggered executions
+3. **Shared Service**: Both endpoints use unified service logic that handles scheduled OR triggered cases
+4. **Idempotency**: PUT method allows robots to retry without creating duplicates
+
 ### ⚠️ Key Considerations
 
-1. **Architecture Constraint**: Current `script_execution` table requires `schedule_id` (BIGINT NOT NULL) and `planned` (TIMESTAMP NOT NULL) - incompatible with trigger-based scripts
-2. **Existing Endpoint**: `POST /v3/scripts/robot/scripts/:scriptReferenceId/executions/unscheduled` exists but only processes report steps, doesn't persist to database
-3. **Event Flow**: Events flow from `megazord-events` → `m-o-triggers` → robot → `micro-manager`
-4. **Event ID Source**: Need to verify if `eventId` is already propagated to robot when trigger fires
-5. **Backward Compatibility**: Scheduled execution flow must remain unchanged
-6. **API Versioning**: Consider v6 endpoint or extend existing v5/internal endpoints
+1. **Schema Migration**: Make `schedule_id` and `planned` nullable, add `triggering_event_id` column
+2. **Event Traceability**: `triggering_event_id` references `event_trigger.id`, which links to `outgoing_event_id`
+3. **Backward Compatibility**: Scheduled execution flow remains 100% unchanged
+4. **Shared Logic**: Maximize code reuse between scheduled and triggered execution paths
 
 ---
 
@@ -368,7 +375,7 @@ Extend micro-manager's script execution storage to support **trigger-initiated (
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │ 2. Micro-Manager API                                                │
-│    POST /v3/scripts/robot/scripts/:scriptReferenceId/executions/   │
+│    POST /v3/scripts/robot/scripts/:scriptReferenceId/executions/    │
 │         unscheduled                                                 │
 │                                                                     │
 │    Body: PostUnscheduledScriptExecutionDTO                          │
@@ -379,7 +386,7 @@ Extend micro-manager's script execution storage to support **trigger-initiated (
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ 3. ScriptRobotControllerV3.scriptUnscheduledExecutionPost()        │
+│ 3. ScriptRobotControllerV3.scriptUnscheduledExecutionPost()         │
 │    - Extract robotId from Kong headers                              │
 │    - Extract scriptExecution from validated body                    │
 │    - Call ScriptExecutionService.handleUnscheduledSteps()           │
@@ -387,7 +394,7 @@ Extend micro-manager's script execution storage to support **trigger-initiated (
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ 4. ScriptExecutionService.handleUnscheduledSteps()                 │
+│ 4. ScriptExecutionService.handleUnscheduledSteps()                  │
 │    ⚠️ CURRENT IMPLEMENTATION - MINIMAL:                             │
 │                                                                     │
 │    for (const step of execution.scriptExecutionSteps) {             │
@@ -634,9 +641,9 @@ CREATE TABLE `script_step_execution` (
 
 ---
 
-**Migration Options:**
+**Migration Strategy (Option 1 - Confirmed):**
 
-#### **Option 1: Make Columns Nullable (RECOMMENDED)**
+#### Make Columns Nullable + Add triggering_event_id
 
 **Pros:**
 - ✅ Clean semantics: NULL = trigger-based, NOT NULL = scheduled
@@ -649,91 +656,100 @@ CREATE TABLE `script_step_execution` (
 - ⚠️ Need to drop and recreate FK constraint
 - ⚠️ Existing queries may need review (though most already filter by robot_id)
 
-**Migration Script (Flyway V[XX]__add_triggered_execution_support.sql):**
+**Migration Script (typ-e/src/main/resources/db/migration/V97__add_triggered_script_execution_support.sql):**
 
 ```sql
--- Add columns for triggered executions
-ALTER TABLE script_execution
-  ADD COLUMN outgoing_event_id BIGINT UNSIGNED NULL
-    COMMENT 'outgoing_event.id from megazord-events (NULL for scheduled)',
-  ADD COLUMN incoming_event_id BIGINT UNSIGNED NULL
-    COMMENT 'incoming_event.id from megazord-events (NULL for scheduled)';
+-- Add triggering_event_id column for triggered executions
+ALTER TABLE `script_execution`
+  ADD COLUMN `triggering_event_id` BIGINT UNSIGNED NULL
+    COMMENT 'References event_trigger.id for triggered executions (NULL for scheduled)',
+  ADD INDEX `idx_triggering_event_id` (`triggering_event_id`);
 
--- Make scheduled columns nullable
-ALTER TABLE script_execution
-  MODIFY COLUMN schedule_id BIGINT UNSIGNED NULL
-    COMMENT 'NULL for trigger-based executions, NOT NULL for scheduled',
-  MODIFY COLUMN planned DATETIME NULL
-    COMMENT 'NULL for trigger-based executions, scheduled time for scheduled';
+-- Make schedule columns nullable to support triggered executions
+ALTER TABLE `script_execution`
+  DROP FOREIGN KEY `fk_scheduled_script_schedule_id`;
 
--- Drop old FK constraint
-ALTER TABLE script_execution 
-  DROP FOREIGN KEY fk_scheduled_script_schedule_id;
+ALTER TABLE `script_execution`
+  MODIFY COLUMN `schedule_id` BIGINT UNSIGNED NULL
+    COMMENT 'NULL for triggered executions, NOT NULL for scheduled',
+  MODIFY COLUMN `planned` DATETIME NULL
+    COMMENT 'NULL for triggered executions, scheduled time for scheduled';
 
--- Recreate FK allowing NULL
-ALTER TABLE script_execution
-  ADD CONSTRAINT fk_scheduled_script_schedule_id 
-    FOREIGN KEY (schedule_id) 
-    REFERENCES task_schedule(id)
+-- Recreate FK constraint allowing NULL
+ALTER TABLE `script_execution`
+  ADD CONSTRAINT `fk_scheduled_script_schedule_id` 
+    FOREIGN KEY (`schedule_id`) 
+    REFERENCES `task_schedule` (`id`)
     ON UPDATE RESTRICT
     ON DELETE RESTRICT;
 
--- Add indexes for trigger queries
-CREATE INDEX idx_outgoing_event_id 
-  ON script_execution(outgoing_event_id);
+-- Add FK to event_trigger table
+ALTER TABLE `script_execution`
+  ADD CONSTRAINT `fk_script_execution_triggering_event_id`
+    FOREIGN KEY (`triggering_event_id`)
+    REFERENCES `event_trigger` (`id`)
+    ON DELETE SET NULL;
 
-CREATE INDEX idx_incoming_event_id 
-  ON script_execution(incoming_event_id);
-
--- Add check constraint (MySQL 8.0.16+)
-ALTER TABLE script_execution
-  ADD CONSTRAINT chk_execution_source
+-- Add check constraint to ensure either scheduled OR triggered
+ALTER TABLE `script_execution`
+  ADD CONSTRAINT `chk_execution_source`
     CHECK (
-      (schedule_id IS NOT NULL AND outgoing_event_id IS NULL AND incoming_event_id IS NULL) OR
-      (schedule_id IS NULL AND (outgoing_event_id IS NOT NULL OR incoming_event_id IS NOT NULL))
+      (schedule_id IS NOT NULL AND triggering_event_id IS NULL) OR
+      (schedule_id IS NULL AND triggering_event_id IS NOT NULL)
     )
-    COMMENT 'Execution must be either scheduled OR triggered (with event IDs)';
+    COMMENT 'Execution must be either scheduled OR triggered';
 
--- Add generated column for easy filtering (optional)
-ALTER TABLE script_execution
-  ADD COLUMN execution_type VARCHAR(20) 
-    GENERATED ALWAYS AS (
-      CASE 
-        WHEN schedule_id IS NOT NULL THEN 'scheduled'
-        WHEN outgoing_event_id IS NOT NULL THEN 'triggered'
-        ELSE NULL
-      END
-    ) STORED
-    COMMENT 'Type: scheduled or triggered';
+-- Grant SELECT permission to micro-manager on event_trigger for joins
+GRANT SELECT ON `tinybots`.`event_trigger` TO 'micro-manager-rw'@'10.0.0.0/255.0.0.0';
+GRANT SELECT ON `tinybots`.`event_trigger` TO 'micro-manager-rw'@'172.16.0.0/255.240.0.0';
+GRANT SELECT ON `tinybots`.`event_trigger` TO 'micro-manager-rw'@'192.168.0.0/255.255.0.0';
 
-CREATE INDEX idx_execution_type ON script_execution(execution_type);
+GRANT SELECT ON `tinybots`.`outgoing_event` TO 'micro-manager-rw'@'10.0.0.0/255.0.0.0';
+GRANT SELECT ON `tinybots`.`outgoing_event` TO 'micro-manager-rw'@'172.16.0.0/255.240.0.0';
+GRANT SELECT ON `tinybots`.`outgoing_event` TO 'micro-manager-rw'@'192.168.0.0/255.255.0.0';
 ```
 
-**Rollback Script:**
+**Rollback Script (V97_rollback.sql):**
 
 ```sql
--- Remove new columns
-ALTER TABLE script_execution
-  DROP COLUMN execution_type,
-  DROP COLUMN incoming_event_id,
-  DROP COLUMN outgoing_event_id;
+-- WARNING: Delete all triggered executions first!
+DELETE FROM script_execution WHERE triggering_event_id IS NOT NULL;
 
--- Remove check constraint
-ALTER TABLE script_execution
-  DROP CONSTRAINT chk_execution_source;
+-- Remove FK constraints
+ALTER TABLE `script_execution`
+  DROP FOREIGN KEY `fk_script_execution_triggering_event_id`,
+  DROP CONSTRAINT `chk_execution_source`;
+
+-- Remove triggering_event_id column
+ALTER TABLE `script_execution`
+  DROP INDEX `idx_triggering_event_id`,
+  DROP COLUMN `triggering_event_id`;
 
 -- Restore NOT NULL constraints
-ALTER TABLE script_execution
-  MODIFY COLUMN schedule_id BIGINT UNSIGNED NOT NULL,
-  MODIFY COLUMN planned DATETIME NOT NULL;
+ALTER TABLE `script_execution`
+  DROP FOREIGN KEY `fk_scheduled_script_schedule_id`;
 
--- Note: This rollback will FAIL if triggered executions exist in the table
--- Need to DELETE triggered executions first
+ALTER TABLE `script_execution`
+  MODIFY COLUMN `schedule_id` BIGINT UNSIGNED NOT NULL,
+  MODIFY COLUMN `planned` DATETIME NOT NULL;
+
+ALTER TABLE `script_execution`
+  ADD CONSTRAINT `fk_scheduled_script_schedule_id`
+    FOREIGN KEY (`schedule_id`)
+    REFERENCES `task_schedule` (`id`);
+
+-- Revoke permissions
+REVOKE SELECT ON `tinybots`.`event_trigger` FROM 'micro-manager-rw'@'10.0.0.0/255.0.0.0';
+REVOKE SELECT ON `tinybots`.`event_trigger` FROM 'micro-manager-rw'@'172.16.0.0/255.240.0.0';
+REVOKE SELECT ON `tinybots`.`event_trigger` FROM 'micro-manager-rw'@'192.168.0.0/255.255.0.0';
+REVOKE SELECT ON `tinybots`.`outgoing_event` FROM 'micro-manager-rw'@'10.0.0.0/255.0.0.0';
+REVOKE SELECT ON `tinybots`.`outgoing_event` FROM 'micro-manager-rw'@'172.16.0.0/255.240.0.0';
+REVOKE SELECT ON `tinybots`.`outgoing_event` FROM 'micro-manager-rw'@'192.168.0.0/255.255.0.0';
 ```
 
 ---
 
-#### **Option 2: Separate Table for Triggered Executions**
+### Repository Layer Changes
 
 **Pros:**
 - ✅ Zero risk to existing scheduled execution flow
@@ -891,23 +907,24 @@ ORDER BY se.created_at DESC;
 
 ---
 
-### 2. Repository Layer (`ScriptExecutionRepository.ts`)
+### Repository Layer - Unified Approach
 
-**Current Method (Scheduled):**
+**Current Method (Keep Unchanged):**
 
 ```typescript
+// Used by existing scheduled execution flow
 public addScriptExecution = async ({ 
   robotId, 
   scriptVersionId, 
   scriptReferenceId, 
-  scheduleId,   // ← Required
-  planned       // ← Required
+  scheduleId,
+  planned
 }: { 
   robotId: number
   scriptVersionId: number
   scriptReferenceId: number
-  scheduleId: number     // ← Required
-  planned: string | Date // ← Required
+  scheduleId: number
+  planned: string | Date
 }) => {
   const sRef = await this.scriptRepository.getScriptReference({ 
     id: scriptReferenceId, 
@@ -928,21 +945,19 @@ private ADD_SCRIPT_EXECUTION = `
   VALUES(?, ?, ?, ?)`
 ```
 
-**NEW Method (Triggered) - To Implement:**
+**NEW Method (Triggered Execution) - To Implement:**
 
 ```typescript
 public addTriggeredScriptExecution = async ({ 
   robotId, 
   scriptVersionId, 
   scriptReferenceId, 
-  outgoingEventId,  // ← NEW: From trigger command
-  incomingEventId   // ← OPTIONAL: Can be fetched or passed
+  triggeringEventId  // ← References event_trigger.id
 }: { 
   robotId: number
   scriptVersionId: number
   scriptReferenceId: number
-  outgoingEventId: number  // ← NEW
-  incomingEventId?: number // ← OPTIONAL
+  triggeringEventId: number
 }): Promise<OkPacket> => {
   // Verify script reference belongs to robot
   const sRef = await this.scriptRepository.getScriptReference({ 
@@ -958,7 +973,7 @@ public addTriggeredScriptExecution = async ({
 
   const dbRes = await this.database.generalQuery<any>(
     this.ADD_TRIGGERED_SCRIPT_EXECUTION, 
-    [sRef[0].id, scriptVersionId, outgoingEventId, incomingEventId || null]
+    [sRef[0].id, scriptVersionId, triggeringEventId]
   )
   
   return dbRes as OkPacket
@@ -966,44 +981,61 @@ public addTriggeredScriptExecution = async ({
 
 private ADD_TRIGGERED_SCRIPT_EXECUTION = `
   INSERT INTO script_execution 
-    (script_reference_id, script_version_id, schedule_id, planned, 
-     outgoing_event_id, incoming_event_id) 
-  VALUES (?, ?, NULL, NULL, ?, ?)`
-  // ⚠️ NULL for schedule_id and planned since this is triggered
+    (script_reference_id, script_version_id, schedule_id, planned, triggering_event_id) 
+  VALUES (?, ?, NULL, NULL, ?)`
 ```
 
 **Query Methods - To Implement:**
 
 ```typescript
-// Get executions by outgoing event ID
-private GET_EXECUTIONS_BY_OUTGOING_EVENT = `
+// Get executions by trigger ID
+private GET_EXECUTIONS_BY_TRIGGER = `
   SELECT se.*, sr.robot_id
   FROM script_execution se
   JOIN script_reference sr ON se.script_reference_id = sr.id
-  WHERE se.outgoing_event_id = ?`
+  WHERE se.triggering_event_id = ?`
 
-public getExecutionsByOutgoingEvent = async (
-  outgoingEventId: number
+public getExecutionsByTrigger = async (
+  triggeringEventId: number
 ): Promise<any[]> => {
   return this.database.generalQuery<any>(
-    this.GET_EXECUTIONS_BY_OUTGOING_EVENT, 
-    [outgoingEventId]
+    this.GET_EXECUTIONS_BY_TRIGGER, 
+    [triggeringEventId]
   )
 }
 
-// Get executions by incoming event ID
-private GET_EXECUTIONS_BY_INCOMING_EVENT = `
-  SELECT se.*, sr.robot_id
+// Get triggered executions with event context
+private GET_TRIGGERED_EXECUTIONS_WITH_EVENTS = `
+  SELECT 
+    se.*,
+    et.outgoing_event_id,
+    oe.source_event_id as incoming_event_id,
+    sr.robot_id
   FROM script_execution se
+  JOIN event_trigger et ON se.triggering_event_id = et.id
+  JOIN outgoing_event oe ON et.outgoing_event_id = oe.id
   JOIN script_reference sr ON se.script_reference_id = sr.id
-  WHERE se.incoming_event_id = ?`
+  WHERE se.triggering_event_id IS NOT NULL
+    AND sr.robot_id = ?
+    AND se.created_at >= ?
+    AND se.created_at <= ?
+  ORDER BY se.created_at DESC
+  LIMIT ?`
 
-public getExecutionsByIncomingEvent = async (
-  incomingEventId: number
-): Promise<any[]> => {
+public getTriggeredExecutionsWithEvents = async ({
+  robotId,
+  from,
+  to,
+  limit = 100
+}: {
+  robotId: number
+  from: Date | string
+  to: Date | string
+  limit?: number
+}): Promise<any[]> => {
   return this.database.generalQuery<any>(
-    this.GET_EXECUTIONS_BY_INCOMING_EVENT, 
-    [incomingEventId]
+    this.GET_TRIGGERED_EXECUTIONS_WITH_EVENTS,
+    [robotId, from, to, limit]
   )
 }
 
@@ -1039,7 +1071,170 @@ public getTriggeredExecutions = async ({
 
 ---
 
-### 3. Service Layer (`ScriptExecutionService.ts`)
+### Service Layer - Unified Logic
+
+**Current Method (Keep Unchanged):**
+
+```typescript
+// Used by existing PUT endpoint for scheduled executions
+public async saveExecution ({ 
+  robotId, 
+  scriptReferenceId, 
+  scriptExecution, 
+  scheduleId,
+  planned,
+  scriptVersionId 
+}: {
+  robotId: number
+  scriptReferenceId: number
+  scriptExecution: PutScriptExecutionDTO
+  scheduleId: number
+  planned: Date
+  scriptVersionId: number
+}) {
+  // Check if execution already exists (idempotency)
+  const executionId = await this.scriptExecutionRepository.getScriptExecutionId({
+    robotId, scriptReferenceId,
+    scriptVersionId: scriptExecution.scriptVersionId,
+    scheduleId, planned
+  })
+
+  let okPacket
+  
+  // Validate steps
+  await this.validateExecutionSteps(
+    scriptExecution.scriptExecutionSteps, 
+    robotId, scriptReferenceId, scriptVersionId
+  )
+  
+  // Create execution if doesn't exist
+  if (!executionId) {
+    okPacket = await this.scriptExecutionRepository.addScriptExecution({ 
+      robotId, scriptReferenceId, scriptVersionId, scheduleId, planned 
+    })
+  }
+  
+  const scriptExecutionId = executionId || okPacket.insertId
+  
+  if (scriptExecutionId) {
+    // Process steps (shared logic)
+    const executionSteps = scriptExecution.scriptExecutionSteps
+      .map(step => ({ ...step, scriptExecutionId }))
+    
+    // Handle report steps
+    for (const step of executionSteps) {
+      if (step.stepType === 'report') {
+        step.data = await this.reportingService.report(
+          robotId, scriptExecutionId, 
+          scriptExecution.scriptVersionId, planned, step
+        )
+      }
+    }
+    
+    // Save steps (shared logic)
+    await this.scriptExecutionRepository.addScriptExecutionSteps(executionSteps)
+  } else {
+    throw Error('Failed to create script execution')
+  }
+}
+```
+
+**NEW Method (Triggered Execution) - To Implement:**
+
+```typescript
+public async saveTriggeredExecution ({ 
+  robotId, 
+  scriptReferenceId, 
+  scriptVersionId,
+  triggeringEventId,
+  scriptExecutionSteps 
+}: {
+  robotId: number
+  scriptReferenceId: number
+  scriptVersionId: number
+  triggeringEventId: number
+  scriptExecutionSteps: ExecutionStepDTO[]
+}): Promise<number> {
+  // 1. Validate steps (SHARED LOGIC - reuse existing method)
+  await this.validateExecutionSteps(
+    scriptExecutionSteps, 
+    robotId, 
+    scriptReferenceId, 
+    scriptVersionId
+  )
+
+  // 2. Create execution record
+  const okPacket = await this.scriptExecutionRepository
+    .addTriggeredScriptExecution({ 
+      robotId, 
+      scriptReferenceId, 
+      scriptVersionId, 
+      triggeringEventId
+    })
+
+  const scriptExecutionId = okPacket.insertId
+
+  if (!scriptExecutionId) {
+    throw new InternalServerError('Failed to create triggered script execution')
+  }
+
+  // 3. Process steps (SHARED LOGIC - same as scheduled)
+  const executionSteps = scriptExecutionSteps
+    .map(step => ({ ...step, scriptExecutionId }))
+
+  // 4. Handle report steps
+  for (const step of executionSteps) {
+    if (step.stepType === 'report') {
+      step.data = await this.reportingService.report(
+        robotId, 
+        scriptExecutionId, 
+        scriptVersionId, 
+        new Date(),  // Use current time (no planned time for triggered)
+        step
+      )
+    }
+  }
+
+  // 5. Save steps (SHARED LOGIC - reuse existing method)
+  await this.scriptExecutionRepository.addScriptExecutionSteps(executionSteps)
+
+  return scriptExecutionId
+}
+
+// SHARED METHOD - No changes needed, used by both flows
+private validateExecutionSteps = async (
+  executionSteps: ExecutionStepDTO[],
+  robotId: number, 
+  scriptReferenceId: number, 
+  scriptVersionId: number
+) => {
+  const stepIds = executionSteps.map(s => s.scriptStepId)
+  const nextStepIds = executionSteps.map(s => s.nextScriptStepId)
+  
+  const dbIds = await this.stepsRepository.getScriptStepIds({ 
+    robotId, scriptReferenceId, scriptVersionId 
+  })
+  
+  stepIds.forEach(stepId => {
+    if (!dbIds.includes(stepId)) {
+      throw new CustomError('Invalid execution steps', 403)
+    }
+  })
+  
+  nextStepIds.forEach(stepId => {
+    if (stepId && !dbIds.includes(stepId)) {
+      throw new CustomError('Invalid execution steps', 403)
+    }
+  })
+}
+```
+
+**Key Design Points:**
+- ✅ Reuse `validateExecutionSteps()` method
+- ✅ Reuse `addScriptExecutionSteps()` method
+- ✅ Different creation: `addScriptExecution()` vs `addTriggeredScriptExecution()`
+- ✅ Report processing uses `new Date()` instead of `planned` time
+- ✅ ~90% code reuse between scheduled and triggered flows
 
 **Current Method (Scheduled):**
 
@@ -1220,7 +1415,75 @@ private validateExecutionSteps = async (
 
 ---
 
-### 4. DTOs & Schemas (`schemas/body/ScriptExecution.ts`)
+### DTOs & Validation
+
+**Current DTO (Scheduled - Keep Unchanged):**
+
+```typescript
+export class PutScriptExecutionDTO {
+  @IsOptional()
+  @IsInt()
+  id?: number
+
+  @IsInt()
+  scriptVersionId: number
+
+  @Transform(sqlDateParser)
+  @IsDate()
+  planned: Date  // Required for scheduled
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ExecutionStepDTO)
+  scriptExecutionSteps?: ExecutionStepDTO[]
+}
+```
+
+**NEW DTO (Triggered Execution) - To Implement:**
+
+```typescript
+export class PostTriggeredScriptExecutionDTO {
+  @IsInt()
+  @Min(1)
+  scriptVersionId: number
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ExecutionStepDTO)
+  scriptExecutionSteps: ExecutionStepDTO[]  // Required, not optional
+}
+
+export class TriggeredScriptExecutionResponse {
+  // 204 No Content - no response body needed
+}
+```
+
+**Note**: `triggeringEventId` is in URL path, not in body (similar to scheduleId in scheduled execution)
+
+**Execution Step DTO (Shared - No Changes):**
+
+```typescript
+export class ExecutionStepDTO {
+  @IsInt()
+  scriptStepId: number
+
+  @IsIn(['say', 'wait', 'closedQuestion', 'multipleChoice', 'report', 'statusCheck'])
+  public stepType: 'say' | 'wait' | 'closedQuestion' | 
+                   'multipleChoice' | 'report' | 'statusCheck'
+
+  @IsInt()
+  @IsOptional()
+  nextScriptStepId?: number | null
+
+  @Transform(sqlDateParser)
+  @IsDate()
+  executedAt: Date | string
+
+  @IsOptional()
+  data?: ExecutionData | null
+}
+```
 
 **Current DTO (Scheduled):**
 
@@ -1313,7 +1576,136 @@ export class ExecutionStepDTO {
 
 ---
 
-### 5. Controller Layer (To Implement)
+### Controller Layer
+
+**Existing Controller (Keep Unchanged):**
+
+```typescript
+// ScriptRobotController.ts - No changes needed
+public scriptExecutionPut = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const scheduleId = parseInt(req.params.scheduleId)
+    const scriptReferenceId = parseInt(req.params.scriptReferenceId)
+    const robotId = parseInt(res.locals.robotId)
+    const scriptExecution: PutScriptExecutionDTO = res.locals.scriptExecution
+    const scriptVersionId = scriptExecution.scriptVersionId
+    const planned = scriptExecution.planned
+    
+    await this.scriptExecutionService.saveExecution({ 
+      scheduleId, scriptReferenceId, scriptExecution, 
+      robotId, scriptVersionId, planned 
+    })
+    
+    res.status(204).send()
+  } catch (error) {
+    next(error)
+  }
+}
+```
+
+**NEW Controller (Triggered Execution) - To Implement:**
+
+```typescript
+// src/controllers/ScriptTriggeredExecutionController.ts
+
+import { Request, Response, NextFunction } from 'express'
+import { ScriptExecutionService } from '../services/ScriptExecutionService'
+import { 
+  PostTriggeredScriptExecutionDTO, 
+  TriggeredScriptExecutionResponse 
+} from '../schemas/body/ScriptExecution'
+
+export class ScriptTriggeredExecutionController {
+  constructor(
+    private scriptExecutionService: ScriptExecutionService
+  ) {}
+
+  public postTriggeredExecution = async (
+    req: Request, 
+    res: Response<TriggeredScriptExecutionResponse>, 
+    next: NextFunction
+  ) => {
+    try {
+      // Extract from Kong auth middleware
+      const robotId = parseInt(res.locals.robotId)
+      
+      // Extract from URL params
+      const scriptReferenceId = parseInt(req.params.scriptReferenceId)
+      
+      // Extract from validated request body
+      const body: PostTriggeredScriptExecutionDTO = res.locals.scriptExecution
+
+      // Save execution
+      const scriptExecutionId = await this.scriptExecutionService
+        .saveTriggeredExecution({
+          robotId,
+          scriptReferenceId,
+          scriptVersionId: body.scriptVersionId,
+          triggeringEventId: body.triggeringEventId,
+          scriptExecutionSteps: body.scriptExecutionSteps
+        })
+
+      // Return 201 Created with execution ID
+      res.status(201).json({ scriptExecutionId })
+    } catch (error) {
+      next(error)
+    }
+  }
+}
+```
+
+**Route Registration:**
+
+```typescript
+// src/routes/routes.ts
+
+// ... existing routes (keep unchanged) ...
+
+// NEW: Triggered execution endpoint (PUT for idempotency)
+app.put(
+  '/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:triggeringEventId',
+  joiValidator.headers(kongHeaderSchema),
+  joiValidator.params(scriptReferenceIdSchema),
+  checkRobotAccess,  // Verifies robot identity
+  postTriggeredScriptExecution,  // Validates body
+  scriptTriggeredExecutionController.putTriggeredExecution
+)
+```
+
+**Validation Middleware:**
+
+```typescript
+// src/middleware/validation/body.ts
+
+export const postTriggeredScriptExecution = async (
+  req: Request, 
+  res: Response, 
+  next: NextFunction
+) => {
+  try {
+    const execution = plainToInstance(
+      PostTriggeredScriptExecutionDTO, 
+      req.body
+    )
+    
+    const errors = await validate(execution)
+    
+    if (errors.length > 0) {
+      const messages = errors.map(err => 
+        Object.values(err.constraints || {}).join(', ')
+      )
+      throw new BadRequestError(
+        `Validation failed: ${messages.join('; ')}`
+      )
+    }
+    
+    res.locals.scriptExecution = execution
+    next()
+  } catch (error) {
+    next(error)
+  }
+}
+```
 
 **NEW Controller:**
 
@@ -1435,7 +1827,36 @@ export const postTriggeredScriptExecution = async (
 
 ---
 
-### 6. Dependency Injection (`buildContainer.ts`)
+### Dependency Injection
+
+```typescript
+// src/buildContainer.ts
+
+import { ScriptTriggeredExecutionController } from './controllers/ScriptTriggeredExecutionController'
+
+export default () => {
+  const container = createContainer()
+
+  container.register({
+    // ... existing registrations (no changes) ...
+
+    // Repositories (already registered)
+    scriptExecutionRepository: asClass(ScriptExecutionRepository).singleton(),
+    stepsRepository: asClass(StepsRepository).singleton(),
+    
+    // Services (already registered)
+    scriptExecutionService: asClass(ScriptExecutionService).singleton(),
+    reportingService: asClass(ReportingService).singleton(),
+    
+    // NEW Controller
+    scriptTriggeredExecutionController: asClass(
+      ScriptTriggeredExecutionController
+    ).singleton()
+  })
+
+  return container
+}
+```
 
 ```typescript
 // src/buildContainer.ts
@@ -1468,718 +1889,298 @@ export default () => {
 
 ---
 
-## 🔄 Implementation Plan
+## 🔄 Implementation Plan (Revised)
 
-### Phase 1: Database Schema Migration
+### Phase 1: Database Schema Migration ✅ CRITICAL
 
-**Priority**: Critical | **Effort**: 1-2 days | **Dependencies**: None
+**Priority**: Critical | **Effort**: 1 day | **Dependencies**: None
 
 **Tasks:**
 
-1. [ ] **Create Migration Script**
-   - File: `migrations/YYYYMMDD_add_triggered_execution_support.sql`
+1. [ ] **Create Migration Script V97**
+   - File: `typ-e/src/main/resources/db/migration/V97__add_triggered_script_execution_support.sql`
+   - Add `triggering_event_id` column (nullable, references `event_trigger.id`)
    - Make `schedule_id` and `planned` nullable
-   - Add `triggering_event_id` column
-   - Add `trigger_type` computed column (optional)
-   - Add check constraint
-   - Add index on `triggering_event_id`
-   - Drop/recreate FK constraint
+   - Drop/recreate `fk_scheduled_script_schedule_id` FK constraint
+   - Add check constraint (either scheduled OR triggered)
+   - Add FK to `event_trigger` table
+   - Grant SELECT permissions on `event_trigger` and `outgoing_event` to micro-manager
 
 2. [ ] **Test Migration on Dev Database**
-   - Run migration on local dev database
-   - Verify existing scheduled executions are queryable
-   - Test INSERT with NULL schedule_id
-   - Test INSERT with triggering_event_id
-   - Verify indexes created
+   - Run migration locally
+   - Verify existing scheduled executions remain queryable
+   - Test INSERT with `triggering_event_id` (scheduled fields NULL)
+   - Test INSERT with `schedule_id` (triggering_event_id NULL)
+   - Verify check constraint prevents both being NULL or both being set
+   - Verify indexes work efficiently
 
-3. [ ] **Rollback Script**
-   - Create reverse migration
-   - Test rollback procedure
+3. [ ] **Create Rollback Script**
+   - File: `V97_rollback.sql` (for emergency use)
+   - Delete all triggered executions first
+   - Drop FK and check constraints
+   - Drop `triggering_event_id` column
+   - Restore NOT NULL on `schedule_id` and `planned`
 
 **Acceptance Criteria:**
-- ✅ Migration runs without errors
-- ✅ Can insert execution with `schedule_id=NULL, planned=NULL, triggering_event_id=123`
-- ✅ Can insert execution with `schedule_id=789, planned='2025-12-06', triggering_event_id=NULL`
-- ✅ Existing queries return same results
-- ✅ FK constraint allows NULL
-
-**Risks:**
-- ⚠️ Downtime during migration (lock table)
-- ⚠️ FK constraint recreation may fail if orphaned records exist
+- ✅ Migration runs without errors on dev database
+- ✅ Can insert triggered execution: `INSERT INTO script_execution (script_reference_id, script_version_id, schedule_id, planned, triggering_event_id) VALUES (1, 1, NULL, NULL, 123)`
+- ✅ Can insert scheduled execution: `INSERT INTO script_execution (script_reference_id, script_version_id, schedule_id, planned, triggering_event_id) VALUES (1, 1, 789, NOW(), NULL)`
+- ✅ Check constraint prevents invalid data
+- ✅ Existing scheduled execution queries return unchanged results
 
 ---
 
 ### Phase 2: Repository Layer Implementation
 
-**Priority**: High | **Effort**: 2-3 days | **Dependencies**: Phase 1 (schema migration)
+**Priority**: High | **Effort**: 1-2 days | **Dependencies**: Phase 1
 
 **Tasks:**
 
-1. [ ] **Update `ScriptExecutionRepository.ts`**
-   - Add `ADD_TRIGGERED_SCRIPT_EXECUTION` SQL statement
+1. [ ] **Implement New Repository Methods**
+   - File: `micro-manager/src/repository/ScriptExecutionRepository.ts`
+   - Add `ADD_TRIGGERED_SCRIPT_EXECUTION` SQL constant
    - Implement `addTriggeredScriptExecution()` method
-   - Implement `getExecutionsByTriggeringEvent()` method
-   - Implement `getTriggeredExecutions()` method (date range query)
+   - Add `GET_EXECUTIONS_BY_TRIGGER` SQL constant
+   - Implement `getExecutionsByTrigger()` method
+   - Add `GET_TRIGGERED_EXECUTIONS_WITH_EVENTS` SQL with JOINs
+   - Implement `getTriggeredExecutionsWithEvents()` method
 
-2. [ ] **Unit Tests**
-   - File: `test/IT/repositoryIT/ScriptExecutionRepository.IT.spec.ts`
-   - Test `addTriggeredScriptExecution()` inserts with NULL schedule
-   - Test `getExecutionsByTriggeringEvent()` returns correct rows
-   - Test `getTriggeredExecutions()` date filtering
-   - Test error handling (invalid robot/script)
+2. [ ] **Integration Tests**
+   - File: `micro-manager/test/IT/repositoryIT/ScriptExecutionRepository.IT.spec.ts`
+   - Test `addTriggeredScriptExecution()` inserts correctly
+   - Test `getExecutionsByTrigger()` returns correct data
+   - Test `getTriggeredExecutionsWithEvents()` with JOIN queries
+   - Test error handling for invalid inputs
 
 **Acceptance Criteria:**
 - ✅ `addTriggeredScriptExecution()` returns insertId
-- ✅ Query methods return correct data structure
-- ✅ Error handling throws NotFoundError for invalid script
+- ✅ Query methods return data with correct structure
+- ✅ JOINs to `event_trigger` and `outgoing_event` work correctly
 - ✅ Tests pass with 100% coverage of new methods
+- ✅ Existing repository tests still pass
 
 ---
 
 ### Phase 3: Service Layer Implementation
 
-**Priority**: High | **Effort**: 2-3 days | **Dependencies**: Phase 2 (repository layer)
+**Priority**: High | **Effort**: 1-2 days | **Dependencies**: Phase 2
 
 **Tasks:**
 
-1. [ ] **Update `ScriptExecutionService.ts`**
+1. [ ] **Implement Service Method**
+   - File: `micro-manager/src/services/ScriptExecutionService.ts`
    - Implement `saveTriggeredExecution()` method
-   - Reuse `validateExecutionSteps()` (no changes)
+   - Reuse `validateExecutionSteps()` - no changes needed
+   - Reuse `addScriptExecutionSteps()` - no changes needed
    - Handle report steps with `new Date()` instead of `planned`
 
 2. [ ] **Unit Tests**
-   - File: `test/services/ScriptExecutionService.UT.spec.ts`
-   - Test `saveTriggeredExecution()` calls repository correctly
-   - Test validation of steps
+   - File: `micro-manager/test/services/ScriptExecutionService.UT.spec.ts`
+   - Test `saveTriggeredExecution()` flow
+   - Test step validation is called
+   - Test repository methods are called with correct params
    - Test report processing
-   - Test error propagation
+   - Test error handling
 
 **Acceptance Criteria:**
-- ✅ Method validates steps before insert
-- ✅ Method creates execution record with triggeringEventId
-- ✅ Method saves execution steps
-- ✅ Report steps are processed
-- ✅ Tests pass with >90% coverage
+- ✅ Method validates steps before creating execution
+- ✅ Method creates execution with triggeringEventId
+- ✅ Method saves execution steps using shared logic
+- ✅ Report steps processed with current timestamp
+- ✅ Unit tests pass with >90% coverage
+- ✅ Existing service tests still pass
 
 ---
 
-### Phase 4: DTO & Schema Definition
+### Phase 4: DTOs & Validation
 
-**Priority**: High | **Effort**: 1 day | **Dependencies**: None (can run parallel)
+**Priority**: High | **Effort**: 0.5 day | **Dependencies**: None (parallel with Phase 2-3)
 
 **Tasks:**
 
-1. [ ] **Update `schemas/body/ScriptExecution.ts`**
-   - Create `PostTriggeredScriptExecutionDTO` class
+1. [ ] **Create New DTOs**
+   - File: `micro-manager/src/schemas/body/ScriptExecution.ts`
+   - Create `PostTriggeredScriptExecutionDTO` class with decorators
    - Create `TriggeredScriptExecutionResponse` class
-   - Add validation decorators
+   - Keep existing `PutScriptExecutionDTO` unchanged
 
-2. [ ] **Create Joi Schema (if needed)**
-   - File: `schemas/validation/TriggeredScriptExecutionSchema.ts`
-   - Define Joi validation schema for body
-
-3. [ ] **Unit Tests**
-   - Test DTO validation (valid/invalid cases)
+2. [ ] **Unit Tests**
+   - Test DTO validation accepts valid data
+   - Test validation rejects invalid data
+   - Test required field validation
 
 **Acceptance Criteria:**
-- ✅ DTO validates required fields
-- ✅ triggeringEventId must be integer > 0
-- ✅ scriptExecutionSteps must be non-empty array
+- ✅ `PostTriggeredScriptExecutionDTO` validates correctly
+- ✅ `triggeringEventId` must be positive integer
+- ✅ `scriptExecutionSteps` must be non-empty array
+- ✅ Validation tests pass
 
 ---
 
-### Phase 5: Controller & Route Implementation
+### Phase 5: Controller & Routes
 
-**Priority**: High | **Effort**: 2 days | **Dependencies**: Phase 3 (service), Phase 4 (DTOs)
+**Priority**: High | **Effort**: 1 day | **Dependencies**: Phase 3, Phase 4
 
 **Tasks:**
 
-1. [ ] **Create `ScriptTriggeredExecutionController.ts`**
+1. [ ] **Create Controller**
+   - File: `micro-manager/src/controllers/ScriptTriggeredExecutionController.ts`
    - Implement `postTriggeredExecution()` handler
-   - Add error handling
-   - Add request logging
+   - Extract robotId from `res.locals.robotId`
+   - Extract scriptReferenceId from URL params
+   - Call service method
+   - Return 201 with scriptExecutionId
 
 2. [ ] **Create Validation Middleware**
-   - File: `middleware/validation/body.ts`
-   - Implement `postTriggeredScriptExecution` validator
+   - File: `micro-manager/src/middleware/validation/body.ts`
+   - Add `postTriggeredScriptExecution` validator
+   - Use class-validator to validate DTO
 
-3. [ ] **Update `routes/routes.ts`**
-   - Add POST route for triggered executions
-   - Wire Kong auth, checkRobotAccess, validation
+3. [ ] **Register Route**
+   - File: `micro-manager/src/routes/routes.ts`
+   - Add `POST /v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered`
+   - Wire: Kong headers → params validation → robot access → body validation → controller
 
-4. [ ] **Update `buildContainer.ts`**
-   - Register new controller
+4. [ ] **Register in DI Container**
+   - File: `micro-manager/src/buildContainer.ts`
+   - Register `scriptTriggeredExecutionController`
 
 5. [ ] **Integration Tests**
-   - File: `test/controllers/ScriptTriggeredExecutionController.IT.spec.ts`
-   - Test 201 Created response
-   - Test 400 Bad Request (invalid body)
-   - Test 403 Forbidden (wrong robot)
-   - Test 404 Not Found (invalid script)
+   - File: `micro-manager/test/controllers/ScriptTriggeredExecutionController.IT.spec.ts`
+   - Test 201 response with valid request
+   - Test 400 for invalid body
+   - Test 403 for unauthorized robot
+   - Test 404 for non-existent script
+   - Test 500 for server errors
 
 **Acceptance Criteria:**
-- ✅ Endpoint returns 201 with scriptExecutionId
-- ✅ Kong auth enforced
-- ✅ Robot access check enforced
+- ✅ Endpoint returns 201 with `{ scriptExecutionId: number }`
+- ✅ Kong authentication enforced
+- ✅ Robot access validated
 - ✅ Body validation enforced
-- ✅ Error responses have correct status codes
 - ✅ Integration tests pass
+- ✅ Existing endpoints unaffected
 
 ---
 
-### Phase 6: API Documentation (tiny-specs)
+### Phase 6: API Documentation
 
-**Priority**: Medium | **Effort**: 1-2 days | **Dependencies**: Phase 5 (implementation complete)
+**Priority**: Medium | **Effort**: 1 day | **Dependencies**: Phase 5
 
 **Tasks:**
 
 1. [ ] **Create OpenAPI Schema**
-   - File: `tiny-specs/specs/micro-manager/TriggeredScriptExecution.yaml`
+   - File: `tiny-specs/specs/micro-manager/components/TriggeredScriptExecution.yaml`
    - Define `PostTriggeredScriptExecutionDTO` schema
    - Define `TriggeredScriptExecutionResponse` schema
-   - Add examples
+   - Add request/response examples
 
 2. [ ] **Update Main Spec**
-   - File: `tiny-specs/specs/micro-manager/micro-manager.yaml`
-   - Add endpoint: `POST /v6/scripts/robot/scripts/{scriptReferenceId}/executions/triggered`
+   - File: `tiny-specs/specs/micro-manager/micro-manager.yaml` (or similar)
+   - Add `POST /v6/scripts/robot/scripts/{scriptReferenceId}/executions/triggered`
    - Reference schemas
-   - Document responses (201, 400, 403, 404, 500)
+   - Document all responses (201, 400, 403, 404, 500)
 
-3. [ ] **Update micro-manager Local Docs**
+3. [ ] **Update micro-manager Docs**
    - File: `micro-manager/docs/micro-manager.yaml`
-   - Add endpoint specification
+   - Sync with tiny-specs
    - Add examples
 
 **Acceptance Criteria:**
-- ✅ OpenAPI spec validates without errors
-- ✅ Swagger UI renders endpoint correctly
+- ✅ OpenAPI spec validates (no errors)
+- ✅ Swagger UI renders correctly
 - ✅ All fields documented
 - ✅ Examples are realistic
 
 ---
 
-### Phase 7: Testing & Documentation
+### Phase 7: End-to-End Testing
 
-**Priority**: Medium | **Effort**: 2-3 days | **Dependencies**: Phase 6 (docs)
+**Priority**: High | **Effort**: 1 day | **Dependencies**: Phase 6
 
 **Tasks:**
 
-1. [ ] **End-to-End Integration Tests**
-   - Test full flow: request → database → response
-   - Test with real MySQL database
-   - Test concurrent executions
-   - Test idempotency (duplicate requests)
+1. [ ] **E2E Integration Tests**
+   - Test complete flow: HTTP request → database → response
+   - Test with actual MySQL database (not mocks)
+   - Test idempotency (if applicable)
+   - Test concurrent requests
 
-2. [ ] **Update Repository Overview**
+2. [ ] **Regression Testing**
+   - Run full test suite for scheduled executions
+   - Verify no regressions in existing flows
+   - Check performance benchmarks
+
+3. [ ] **Update Documentation**
    - File: `devdocs/tinybots/micro-manager/OVERVIEW.md`
-   - Document new triggered execution flow
-   - Update controller/service descriptions
-
-3. [ ] **Deployment Guide**
-   - Document migration steps
-   - Document rollback procedure
-   - Document monitoring/alerts to add
-
-4. [ ] **Backward Compatibility Testing**
-   - Verify scheduled executions still work
-   - Run full regression test suite
+   - Document triggered execution flow
+   - Update architecture diagrams
+   - Add troubleshooting guide
 
 **Acceptance Criteria:**
 - ✅ E2E tests pass
-- ✅ Regression tests pass
+- ✅ All existing tests still pass
+- ✅ Performance acceptable (<100ms overhead)
 - ✅ Documentation updated
-- ✅ Performance within acceptable range (<100ms overhead)
 
 ---
 
-### Phase 8: Event ID Propagation (Cross-Service Coordination)
-
-**Priority**: Critical | **Effort**: 3-5 days | **Dependencies**: Phase 1-7 (micro-manager ready)
-
-⚠️ **This phase requires coordination with other services**
-
-**Investigation Tasks:**
-
-1. [ ] **Verify Current Event Flow**
-   - Trace: megazord-events → m-o-triggers → robot
-   - Question: Does robot receive eventId when trigger fires?
-   - Check m-o-triggers trigger payload structure
-   - Check robot firmware/SDK
-
-2. [ ] **Update m-o-triggers (if needed)**
-   - Add `eventId` to trigger payload sent to robot
-   - Update trigger queue message structure
-   - Test with robot simulator
-
-3. [ ] **Update Robot SDK (if needed)**
-   - Parse `eventId` from trigger command
-   - Include in execution report to micro-manager
-   - Update firmware
-
-**Acceptance Criteria:**
-- ✅ eventId flows from megazord to robot
-- ✅ Robot includes eventId in execution report
-- ✅ E2E test: event → trigger → execution → storage
-
-**Risks:**
-- ⚠️ Robot firmware update required (deployment coordination)
-- ⚠️ m-o-triggers changes may affect other consumers
-
----
-
-## 🚧 Outstanding Issues & Follow-up
-
-### ✅ RESOLVED Issues
-
-#### ✅ Question 1: Database Schema Options
-
-**Original Question**: Chỉ có Option 1 (nullable columns)?
-
-**Answer**: Đã thêm **3 options** với phân tích đầy đủ:
-
-- **Option 1: Make Columns Nullable** (RECOMMENDED)
-  - ✅ Clean semantics, easy filtering
-  - ⚠️ Requires migration with table lock
-  
-- **Option 2: Separate Table (`script_execution_triggered`)**
-  - ✅ Zero risk to existing flow
-  - ⚠️ Complex queries with UNION
-  
-- **Option 3: Sentinel Value** (NOT RECOMMENDED)
-  - ✅ Quick fix, no migration
-  - ❌ Confusing semantics, maintenance nightmare
-
-**Recommendation**: **Option 1** for long-term maintainability
-
----
-
-#### ✅ Question 2: Event ID Propagation
-
-**Original Question**: Robot có receive eventId không?
-
-**Answer**: ✅ **TriggerId is available!**
-
-**Implementation**:
-
-- Robot receives `triggerId` from m-o-triggers in trigger command
-- Robot reports execution with `triggerId` to micro-manager
-- Micro-manager queries local `tinybots` database:
-  - Get `outgoing_event_id` from `event_trigger` table
-  - Get `incoming_event_id` from `outgoing_event.source_event_id`
-
-**Database Columns**:
-
-```sql
-outgoing_event_id BIGINT UNSIGNED NOT NULL  -- Resolved from triggerId
-incoming_event_id BIGINT UNSIGNED NOT NULL  -- Resolved from outgoing_event
-```
-
-**✅ All queries within same database - No cross-service API calls!**
-
----
-
-#### ✅ Question 3: "Node executed, with data" - Đã có chưa?
-
-**Original Question**: Requirement này schedule execution đã có chưa?
-
-**Answer**: ✅ **Fully implemented!**
-
-**What Exists (Scheduled Executions)**:
-
-1. ✅ **Node executed**: `script_step_execution` table
-   - `script_step_id`: Which node/step was executed
-   - `next_script_step_id`: Next node in flow
-
-2. ✅ **With data**: Separate tables per step type
-   - `closed_question_execution_data`: answer, probability
-   - `multiple_choice_execution_data`: answer, intention_type
-   - `report_execution_data`: sent, message
-
-3. ✅ **Time of execution**: `executed_at DATETIME(3)` per step
-   - Millisecond precision
-   - Individual timestamp for each node
-
-**What We Need to Add (Triggered Executions)**:
-
-- ❌ Only need to add parent record in `script_execution` with event IDs
-- ✅ **Reuse 100% of step execution logic** (no changes!)
-- ✅ Same tables, same methods, same data structure
-
-**Key Insight**: Requirements 1 & 2 are **already fulfilled**. Only need Requirement 3 (eventId tracking).
-
----
-
-### ⚠️ Critical Decisions Required
-
-#### Decision 1: Event ID Propagation Strategy ✅ RESOLVED
-
-**Question**: Does robot currently receive `eventId` when trigger fires?
-
-**Answer from Investigation**:
-✅ **TriggerId is available** from m-o-triggers
-
-**Implementation Strategy**:
-
-1. Robot receives `triggerId` from m-o-triggers in trigger command
-2. Robot sends `triggerId` to micro-manager when reporting execution
-3. Micro-manager queries **local tinybots database** to resolve event IDs:
-   - Query `event_trigger` table to get `outgoing_event_id` from `triggerId`
-   - Query `outgoing_event` table to get `source_event_id` (incoming_event_id)
-4. Micro-manager stores both `outgoing_event_id` and `incoming_event_id`
-
-**Database Schema (All tables in tinybots DB)**:
-
-```sql
--- M-O-Triggers table (in tinybots DB)
-CREATE TABLE event_trigger (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  outgoing_event_id BIGINT UNSIGNED NOT NULL,  -- Links to outgoing_event
-  -- ... other trigger fields
-);
-
--- Megazord-Events tables (in tinybots DB)
-CREATE TABLE outgoing_event (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  source_event_id BIGINT UNSIGNED NOT NULL,  -- FK to incoming_event
-  subscription_id BIGINT UNSIGNED NOT NULL,
-  status VARCHAR(64) NOT NULL,
-  FOREIGN KEY (source_event_id) REFERENCES incoming_event(id) ON DELETE CASCADE
-);
-
-CREATE TABLE incoming_event (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  robot_id BIGINT UNSIGNED NOT NULL,
-  event_schema_id BIGINT UNSIGNED NOT NULL,
-  -- ... other event fields
-);
-
--- Micro-Manager table (in tinybots DB)
-CREATE TABLE script_execution (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  -- ... existing fields
-  outgoing_event_id BIGINT UNSIGNED NULL,  -- Resolved from triggerId
-  incoming_event_id BIGINT UNSIGNED NULL   -- Resolved from outgoing_event.source_event_id
-);
-```
-
-**Event Traceability Chain**:
-
-```text
-1. Sensara → Megazord: Creates incoming_event (id: 789012) in tinybots DB
-2. Megazord: Creates outgoing_event (id: 999, source_event_id: 789012) in tinybots DB
-3. M-O-Triggers: Creates event_trigger (id: 555, outgoing_event_id: 999) in tinybots DB
-4. M-O-Triggers → Robot: Sends triggerId: 555
-5. Robot → Micro-Manager: Reports execution with triggerId: 555
-6. Micro-Manager:
-   a. Query tinybots.event_trigger WHERE id = 555
-      → Get outgoing_event_id: 999
-   b. Query tinybots.outgoing_event WHERE id = 999
-      → Get source_event_id (incoming_event_id): 789012
-   c. Store in script_execution:
-      - outgoing_event_id: 999
-      - incoming_event_id: 789012
-```
-
-**DTO Changes**:
-
-```typescript
-export class PostTriggeredScriptExecutionDTO {
-  @IsInt()
-  @Min(1)
-  scriptVersionId: number
-
-  @IsInt()
-  @Min(1)
-  triggerId: number  // ← From m-o-triggers command
-
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => ExecutionStepDTO)
-  scriptExecutionSteps: ExecutionStepDTO[]
-}
-```
-
-**Query Logic in Service**:
-
-```typescript
-public async saveTriggeredExecution({
-  triggerId,
-  scriptVersionId,
-  scriptExecutionSteps
-}: {
-  triggerId: number
-  scriptVersionId: number
-  scriptExecutionSteps: ExecutionStepDTO[]
-}): Promise<number> {
-  // 1. Resolve outgoing_event_id from triggerId
-  const trigger = await this.database.query(
-    'SELECT outgoing_event_id FROM event_trigger WHERE id = ?',
-    [triggerId]
-  )
-  const outgoingEventId = trigger[0].outgoing_event_id
-
-  // 2. Resolve incoming_event_id from outgoing_event
-  const outgoingEvent = await this.database.query(
-    'SELECT source_event_id FROM outgoing_event WHERE id = ?',
-    [outgoingEventId]
-  )
-  const incomingEventId = outgoingEvent[0].source_event_id
-
-  // 3. Create execution with both event IDs
-  const okPacket = await this.scriptExecutionRepository
-    .addTriggeredScriptExecution({
-      robotId,
-      scriptReferenceId,
-      scriptVersionId,
-      outgoingEventId,
-      incomingEventId
-    })
-
-  // ... rest of execution logic
-}
-```
-
-**✅ All data in same database - No cross-service API calls needed!**
-
----
-
-#### Decision 2: API Versioning Strategy
-
-**Question**: Should we use v6 endpoint or extend existing v5?
-
-**Options**:
-
-**Option A: New v6 Endpoint (Recommended)**
-```
-POST /v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered
-```
-**Pros**:
-- ✅ Clear separation of concerns
-- ✅ Easier to version independently
-- ✅ Simple rollback (just disable v6)
-- ✅ Explicit intent in URL
-
-**Cons**:
-- ⚠️ Robot firmware needs update to call new endpoint
-- ⚠️ Two execution endpoints to maintain
-
-**Option B: Extend Existing Unscheduled Endpoint**
-```
-POST /v3/scripts/robot/scripts/:scriptReferenceId/executions/unscheduled
-  + Add optional triggeringEventId field
-```
-**Pros**:
-- ✅ No robot firmware change
-- ✅ Backward compatible
-
-**Cons**:
-- ⚠️ Ambiguous: "unscheduled" != "triggered"
-- ⚠️ Optional field may be forgotten
-- ⚠️ Harder to enforce eventId requirement later
-
-**Recommendation**: **Option A (v6)** for clarity and future-proofing
-
----
-
-#### Decision 3: Migration Timing
-
-**Question**: When to run database migration?
-
-**Considerations**:
-- Migration locks `script_execution` table during FK constraint modification
-- Risk of downtime if table is large
-
-**Options**:
-
-**Option A: Maintenance Window**
-- Schedule during low-traffic period (e.g., 2-4 AM)
-- Announce downtime to users
-- Timeline: 5-10 minutes expected
-
-**Option B: Online Migration (Percona pt-online-schema-change)**
-- Use pt-online-schema-change for zero-downtime
-- Creates shadow table, copies data, swaps atomically
-- Timeline: 30-60 minutes (no downtime)
-
-**Option C: Blue-Green Deployment**
-- Run migration on replica
-- Promote replica to primary
-- Timeline: Requires DB infrastructure setup
-
-**Recommendation**: **Option B** if table is large (>1M rows), else **Option A**
-
----
-
-### ⚠️ Clarifications Needed
-
-#### Clarification 1: Duplicate Execution Prevention
-
-**Question**: Can the same trigger event cause multiple script executions?
-
-**Scenarios**:
-- Event fires → Robot executes script → Robot crashes mid-execution
-- Robot retries execution → Sends duplicate report to micro-manager
-- Should we deduplicate? Or allow multiple executions per event?
-
-**Proposed Solution**:
-- Add unique constraint: `UNIQUE(script_reference_id, triggering_event_id)`
-- Or add `execution_attempt` column to allow retries
-
-**Impact**: Need to clarify retry/idempotency requirements
-
----
-
-#### Clarification 2: Query/Reporting Requirements
-
-**Question**: What queries/reports will be built on triggered executions?
-
-**Possible Use Cases**:
-- "Show all executions triggered by event X"
-- "Show all executions for robot Y in last 7 days"
-- "Compare scheduled vs triggered execution counts"
-- "Find failed trigger executions"
-
-**Impact**: May need additional indexes:
-```sql
-CREATE INDEX idx_robot_created 
-  ON script_execution(script_reference_id, created_at);
-
-CREATE INDEX idx_trigger_type 
-  ON script_execution(trigger_type, created_at);
-```
-
----
-
-#### Clarification 3: Execution Completeness Tracking
-
-**Question**: How to know if triggered execution completed successfully?
-
-**Current State**:
-- Scheduled executions: Inferred from presence of steps
-- No explicit "status" field (e.g., RUNNING, COMPLETED, FAILED)
-
-**Proposed Enhancement**:
-```sql
-ALTER TABLE script_execution
-  ADD COLUMN status ENUM('in_progress', 'completed', 'failed') 
-    DEFAULT 'in_progress';
-
--- Update to 'completed' when all steps received
--- Update to 'failed' if robot reports error
-```
-
-**Impact**: May require additional API for status updates
-
----
-
-#### Clarification 4: Cross-Service Error Handling
-
-**Question**: What happens if micro-manager API call fails?
-
-**Scenarios**:
-- Robot executes script successfully
-- Reports to micro-manager → 500 Internal Server Error
-- Execution data lost
-
-**Proposed Solutions**:
-- Robot retries with exponential backoff
-- Robot persists execution locally (SQLite) until ack
-- Micro-manager returns 202 Accepted + async processing
-
-**Impact**: Reliability requirements, need SLA definition
-
----
-
-## 📊 Summary of Results
-
-> **Status**: Planning Phase Complete ✅
-
-### ✅ Key Findings
-
-1. **Requirements Analysis**:
-   - ✅ "Node executed with data" - **Already implemented** in scheduled executions
-   - ✅ "Time of execution" - **Already implemented** via `script_step_execution.executed_at`
-   - ❌ "Event ID tracking" - **Need to add** (primary objective)
-
-2. **Event ID Propagation**:
-   - ✅ **Resolved**: Robot sends `triggerId` from m-o-triggers
-   - ✅ Micro-manager queries local `tinybots` DB to resolve event IDs
-   - ✅ No cross-service API calls needed (all tables in same DB)
-
-3. **Database Schema**:
-   - ✅ Analyzed 3 migration options
-   - ✅ **Recommended**: Option 1 (Nullable columns)
-   - ✅ Migration script ready for review
-
-4. **Implementation Scope**:
-   - ✅ Can **reuse 100%** of step execution logic
-   - ✅ Only need new parent record creation method
-   - ✅ Estimated effort: 10-15 days across 8 phases
-
-### 📋 Deliverables Ready
-
-- [x] Full flow diagrams (scheduled vs triggered vs new)
-- [x] Database schema analysis with 3 options
-- [x] Migration scripts (Option 1)
-- [x] Code examples for all layers (Repository, Service, Controller, DTO)
-- [x] Implementation plan (8 phases with tasks)
-- [x] Test strategy and acceptance criteria
-- [x] Risk analysis and rollback procedures
-
-### 🎯 Next Steps
-
-**Phase 1: Database Migration** (Priority: Critical)
-
-1. Review migration script with DBA
-2. Choose migration strategy (maintenance window vs pt-online-schema-change)
-3. Test migration on dev/staging
-4. Schedule production migration
-
-**Phase 2-7: Implementation** (Priority: High)
-
-1. Implement repository layer
-2. Implement service layer
-3. Create DTOs and validation
-4. Create controller and routes
-5. Write API documentation
-6. Write tests (unit + integration)
-
-**Phase 8: Cross-Team Coordination** (Priority: Medium)
-
-1. Verify `outgoingEventId` in m-o-triggers payload
-2. Coordinate robot firmware update (if needed)
-3. Plan gradual rollout
+## � Summary
+
+### ✅ Key Decisions Made
+
+1. **Schema Migration**: Option 1 - Make `schedule_id` and `planned` nullable, add `triggering_event_id`
+2. **API Design**: Option C - Separate endpoints (`PUT` for scheduled, `POST` for triggered) with shared service logic
+3. **Event Traceability**: Use single `triggering_event_id` column that references `event_trigger.id`, join to get event details
+4. **Code Reuse**: Maximize shared logic - both flows use same validation, step processing, and step storage methods
+
+### 🎯 Implementation Scope
+
+**Database Changes:**
+- Add `triggering_event_id` column (references `event_trigger.id`)
+- Make `schedule_id` and `planned` nullable
+- Add check constraint (either scheduled OR triggered)
+- Grant SELECT on `event_trigger` and `outgoing_event` tables
+
+**Code Changes:**
+- New repository method: `addTriggeredScriptExecution()`
+- New service method: `saveTriggeredExecution()`
+- New controller: `ScriptTriggeredExecutionController`
+- New DTO: `PostTriggeredScriptExecutionDTO`
+- New route: `POST /v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered`
+
+**No Changes Needed:**
+- Existing scheduled execution flow (100% unchanged)
+- Step validation logic (reused as-is)
+- Step storage logic (reused as-is)
+- Execution step tables (reused as-is)
 
 ### 📈 Success Metrics
 
-**Technical Metrics**:
+**Technical:**
+- Migration completes successfully
+- API latency <100ms (p95)
+- Test coverage >90%
+- Zero regression in scheduled flow
 
-- [ ] Migration completes with <10min downtime (or zero with pt-online)
-- [ ] API latency <100ms (p95)
-- [ ] Test coverage >90%
-- [ ] Zero regression in scheduled execution flow
-
-**Business Metrics**:
-
-- [ ] 100% of triggered executions are stored
-- [ ] Full traceability: event → execution → steps
-- [ ] Analytics dashboard shows trigger vs scheduled ratio
-- [ ] Debug time reduced by 50% for trigger issues
+**Business:**
+- 100% triggered executions stored
+- Full traceability: trigger → execution → steps
+- Query performance acceptable for analytics
 
 ---
 
-## 📚 References & Related Work
+## 📚 References
 
-### Related Tickets
-- [251126] Store Executed Script - Similar work, provides pattern to follow
-
-### External Documentation
+### Related Documentation
 - [Megazord Events OVERVIEW](devdocs/tinybots/megazord-events/OVERVIEW.md)
-- [Sensara Adaptor OVERVIEW](devdocs/tinybots/sensara-adaptor/OVERVIEW.md)
 - [M-O-Triggers OVERVIEW](devdocs/tinybots/m-o-triggers/OVERVIEW.md)
+- [Micro-Manager OVERVIEW](devdocs/tinybots/micro-manager/OVERVIEW.md)
 - [TinyBots Platform OVERVIEW](devdocs/tinybots/OVERVIEW.md)
 
-### Technical References
-- MySQL Nullable Columns: https://dev.mysql.com/doc/refman/8.0/en/data-type-defaults.html
-- MySQL Check Constraints: https://dev.mysql.com/doc/refman/8.0/en/create-table-check-constraints.html
-- Percona pt-online-schema-change: https://docs.percona.com/percona-toolkit/pt-online-schema-change.html
+### Related Tables
+- `event_trigger` - Stores trigger records created by m-o-triggers
+- `outgoing_event` - Links triggers to source events (has `source_event_id`)
+- `incoming_event` - Original events from sensors/external sources
+- `script_execution` - Main execution table (being modified)
+- `script_step_execution` - Step-level execution data (no changes)
