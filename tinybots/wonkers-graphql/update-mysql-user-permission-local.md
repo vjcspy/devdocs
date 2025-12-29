@@ -15,6 +15,9 @@ GRANT SELECT ON `tinybots`.`script_category` TO 'graphql_report_ro'@'%';
 GRANT SELECT ON `tinybots`.`robot_schema` TO 'graphql_report_ro'@'%';
 GRANT SELECT ON `tinybots`.`task_schedule` TO 'graphql_report_ro'@'%';
 GRANT SELECT ON `tinybots`.`robot_profile` TO 'graphql_report_ro'@'%';
+GRANT SELECT ON `tinybots`.`sensara_event` TO 'graphql_report_ro'@'%';
+GRANT SELECT ON `tinybots`.`sensara_event_schema` TO 'graphql_report_ro'@'%';
+GRANT SELECT ON `tinybots`.`sensara_resident_robot` TO 'graphql_report_ro'@'%';
 ```
 
 

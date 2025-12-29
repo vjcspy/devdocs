@@ -6,9 +6,10 @@
 
 ## Stock Package Overview (TL;DR)
 
-- Stock workspace focuses on ingesting intraday ticks/prices, normalizing them into candle shapes, and computing trading features (currently Whale Footprint) for persistence to Supabase.
-- Data comes from two places: TCBS REST for raw candles and Supabase tables for ticks, prices, stock metadata, and configuration.
-- Core flows live in `packages/stock/metan/stock`: `info` prepares market data, `trading` turns that data into features, and `testbed` offers quick scripts to sanity-check outputs.
+- **Heart of the package**: `StockDataCollector` (`packages/stock/metan/stock/info/domain/stock_data_collector/stock_data_collector.py`) - central data loader providing all foundational data for feature computation.
+- Primary data source for features: `tick_candles_by_date()` → candles built from actual ticks, containing `tick_actions` for shark/sheep trade classification.
+- Data sources: Supabase (ticks, prices, stock metadata) and TCBS REST (intraday candles - limited).
+- Core flows: `info` (prepare market data) → `trading` (compute features) → Supabase persistence.
 
 ## Repo Purpose & Bounded Context
 
@@ -51,18 +52,199 @@ packages/stock/
 
 ## Core Services & Logic
 
-### StockDataCollector (info.domain.stock_data_collector.stock_data_collector)
+### 🔴 StockDataCollector - Heart of the Stock Package
 
-- Loads per-symbol data between `start_date` and `end_date` at a given `IntradayInterval`.
-- Sources:
-  - Supabase `stock_info_stocks` → `Stock` model (exchange drives schedule selection).
-  - Supabase `stock_info_prices` → `Price` list (includes OHLC and foreign flow fields).
-  - Supabase `stock_info_ticks` → per-day `TickAction` lists, filtered to sides B/S, timestamps normalized to ISO UTC.
-  - TCBS REST (`TcbsSymbolCandleFetcher`) → intraday `PriceCandle` series, filtered to trading session hours.
-- Caches results per symbol/date/interval to reduce database/API calls.
-- Produces:
-  - `tick_candles_by_date()`: buckets tick actions into OHLCV candles per schedule slot; fails fast if gaps occur.
-  - `price_candles_by_date()`: TCBS price candles grouped per trading date with strict time validation.
+> **File:** `packages/stock/metan/stock/info/domain/stock_data_collector/stock_data_collector.py`
+
+`StockDataCollector` is the **central data loader** - providing all foundational data for building features and technical indicators. Every feature calculator depends on the output of this class.
+
+#### Initialization
+
+```python
+from metan.stock.info.domain.stock_data_collector.stock_data_collector import StockDataCollector
+from metan.stock.info.domain.candle.models import IntradayInterval
+
+collector = StockDataCollector(
+    symbol="VNM",
+    start_date="2025-01-01",
+    end_date="2025-01-10",
+    interval=IntradayInterval.FIVE_MINUTES  # 300s or 3600s
+)
+```
+
+---
+
+### 📊 Method Reference & Return Types
+
+#### 1. `ticks()` → `list[Tick]`
+
+**Purpose:** Retrieve raw tick data (individual trades) from Supabase.
+
+**Return Type:**
+
+```python
+class TickAction(BaseModel):
+    time: str                              # ISO 8601 UTC timestamp
+    volume: int                            # Trade volume
+    price: int                             # Trade price (VND)
+    side: Literal["B", "S", "Undefined"]   # Buy/Sell/ATO-ATC
+
+class Tick(BaseModel):
+    symbol: str                            # Stock symbol (e.g., "VNM")
+    date: str                              # Trading date (YYYY-MM-DD)
+    meta: list[TickAction]                 # List of trades for the day
+```
+
+**Characteristics:**
+- Data stored in Supabase table `stock_info_ticks`
+- Only includes trades with `side` as `"B"` (Buy) or `"S"` (Sell)
+- Excludes `"Undefined"` trades (ATO/ATC sessions)
+- Timestamps normalized to ISO 8601 UTC
+
+**Usage:** Foundational data for building tick candles and money-flow based features.
+
+---
+
+#### 2. `tick_candles_by_date()` → `dict[str, list[TickCandle]]` ⭐ **RECOMMENDED**
+
+**Purpose:** Build candles from actual tick data. This is the primary data source for feature computation.
+
+**Return Type:**
+
+```python
+class TickCandle(BaseModel):
+    time: str                    # ISO 8601 UTC - candle start time
+    tick_actions: list[TickAction]  # Individual trades within this candle
+    open: int                    # Opening price
+    close: int                   # Closing price
+    high: int                    # Highest price
+    low: int                     # Lowest price
+    volume: int                  # Total volume
+    value: int                   # Trade value (unit: MILLION VND)
+
+# Return: dict[date_string, list[TickCandle]]
+# Example: {"2025-01-01": [TickCandle(...), ...], "2025-01-02": [...]}
+```
+
+**Why use tick candles instead of price candles from external sources?**
+
+1. **Contains `tick_actions`**: Each candle includes individual trades, enabling:
+   - Shark/sheep trade classification based on value (`price × volume`)
+   - Actual buy/sell money flow calculation
+   - Trade direction identification (Buy/Sell)
+
+2. **Data consistency**: All features are built from the same source, ensuring consistency.
+
+3. **Schedule-normalized**: Candle count is normalized per exchange via `get_intraday_timepoints()`.
+
+**Usage Example:**
+
+```python
+tick_candles = collector.tick_candles_by_date()
+# {"2025-01-01": [TickCandle(...), ...], ...}
+
+for date, candles in tick_candles.items():
+    for candle in candles:
+        # Analyze individual trades within the candle
+        for action in candle.tick_actions:
+            trade_value = action.price * action.volume
+            is_shark = trade_value >= 450_000_000  # 450 million VND
+            is_buy = action.side == "B"
+```
+
+---
+
+#### 3. `prices()` → `list[Price]`
+
+**Purpose:** Retrieve daily OHLCV data from Supabase.
+
+**Return Type:**
+
+```python
+class Price(BaseModel):
+    # Identity
+    symbol: str                              # Stock symbol
+    date: str                                # Date (YYYY-MM-DD)
+
+    # OHLCV
+    open: int                                # Opening price
+    close: int                               # Closing price
+    high: int                                # Highest price
+    low: int                                 # Lowest price
+    volume: int                              # Volume
+    value: int                               # Trade value
+
+    # Foreign flow (optional)
+    average: int | None                      # Average price
+    basic: int | None                        # Reference price
+    deal_volume: int | None                  # Matched volume
+    foreign_buy_qty: int | None              # Foreign buy quantity
+    foreign_buy_value: int | None            # Foreign buy value
+    foreign_sell_qty: int | None             # Foreign sell quantity
+    foreign_sell_value: int | None           # Foreign sell value
+    current_foreign_room: int | None         # Remaining foreign room
+```
+
+**Characteristics:**
+- Data stored in Supabase table `stock_info_prices`
+- Includes foreign investor flow information
+- Sorted by `date` ascending
+
+**Usage:**
+- Fallback for opening price when first bucket has no ticks
+- Computing indicators based on daily data (MA, baseline values...)
+- Retrieving foreign flow information
+
+---
+
+#### 4. `price_candles_by_date()` → `dict[str, list[PriceCandle]]` ⚠️ **LIMITED USE**
+
+**Purpose:** Retrieve intraday candles from TCBS REST API.
+
+**Return Type:**
+
+```python
+class PriceCandle(BaseModel):
+    time: str      # ISO 8601 format
+    open: int      # Opening price
+    close: int     # Closing price
+    high: int      # Highest price
+    low: int       # Lowest price
+    volume: int    # Volume
+```
+
+**⚠️ WARNING - Not recommended for general use:**
+
+1. **Limited data**: TCBS API only provides recent data (~30 days)
+2. **No tick_actions**: Cannot classify shark/sheep trades due to missing individual trade details
+3. **External API dependency**: May fail due to network/rate limiting
+
+**When to use:**
+- Quick sanity checks on candle data
+- Validation by comparing with tick candles
+
+---
+
+### 📋 Summary: Which Method to Use?
+
+| Use Case | Method | Reason |
+|----------|--------|--------|
+| **Build features (Whale, Shark...)** | `tick_candles_by_date()` | Contains `tick_actions` for trade classification |
+| **Compute baseline/MA** | `prices()` | Complete daily OHLCV with historical data |
+| **Analyze foreign flow** | `prices()` | Contains foreign buy/sell information |
+| **Debug/Compare** | `price_candles_by_date()` | Compare with TCBS (limited) |
+
+---
+
+### Caching
+
+`StockDataCollector` caches results by key:
+- `ticks`: `{symbol}|{start_date}|{end_date}`
+- `tick_candles_by_date`: `{symbol}|{start_date}|{end_date}|{interval}`
+- `prices`: `{symbol}|{start_date}|{end_date}`
+- `price_candles_by_date`: `{symbol}|{start_date}|{end_date}|{interval}`
+
+This reduces database/API calls when requesting the same data multiple times.
 
 ### IntradayTimepointsGenerator (info.helper.intraday_timepoints_generator)
 
@@ -85,66 +267,66 @@ packages/stock/
 
 ## Key Notes
 
-### 1. Phân loại Shark/Sheep theo Threshold
+### 1. Shark/Sheep Classification by Threshold
 
-**Input**: Trade value (tính bằng raw units)
+**Input**: Trade value (in raw units)
 
 ```python
-trade_value_raw = price × volume  # đơn vị: đồng (VNĐ)
+trade_value_raw = price × volume  # unit: VND
 ```
 
 **Classification Logic** (per threshold T):
 
-- T được định nghĩa trong **millions** (e.g., 450 = 450 triệu VNĐ)
-- So sánh: `trade_value_raw >= T * 1_000_000`
-  - ✅ → **shark**: Giao dịch lớn (nhà đầu tư tổ chức)
-  - ❌ → **sheep**: Giao dịch nhỏ (nhà đầu tư cá nhân)
+- T is defined in **millions** (e.g., 450 = 450 million VND)
+- Comparison: `trade_value_raw >= T * 1_000_000`
+  - ✅ → **shark**: Large trade (institutional investor)
+  - ❌ → **sheep**: Small trade (retail investor)
 
-**Default Thresholds**: `[450, 900]` (450M và 900M VNĐ)
+**Default Thresholds**: `[450, 900]` (450M and 900M VND)
 
-### 2. Sides (Hướng Giao Dịch)
+### 2. Sides (Trade Direction)
 
-Từ `TickAction.side`:
+From `TickAction.side`:
 
-- `'B'` (Buy): Lệnh MUA
-- `'S'` (Sell): Lệnh BÁN
-- `'Undefined'`: Phiên ATO/ATC (KHÔNG tính trong whale footprint)
+- `'B'` (Buy): BUY order
+- `'S'` (Sell): SELL order
+- `'Undefined'`: ATO/ATC session (NOT counted in whale footprint)
 
 ### 3. Point-in-Time vs Accumulative vs Moving-Window
 
-**Naming Convention trong Code**:
+**Naming Convention in Code**:
 
-| Loại              | Prefix     | Ví dụ                      | Mô tả                                            |
+| Type              | Prefix     | Example                    | Description                                      |
 | ----------------- | ---------- | -------------------------- | ------------------------------------------------ |
-| **Point-in-time** | _(none)_   | `high`, `low`, `close`     | Giá trị tại thời điểm trong candle               |
-| **Accumulative**  | `accum_`   | `accum_shark450_buy_value` | Cộng dồn trong khoảng thời gian (e.g., intraday) |
-| **Moving-window** | `mov_{N}_` | `mov_15_shark_ratio`       | Trung bình trượt N periods                       |
+| **Point-in-time** | _(none)_   | `high`, `low`, `close`     | Value at a specific moment within the candle     |
+| **Accumulative**  | `accum_`   | `accum_shark450_buy_value` | Cumulative sum over a period (e.g., intraday)    |
+| **Moving-window** | `mov_{N}_` | `mov_15_shark_ratio`       | Rolling average over N periods                   |
 
-**Trong WhaleFootprintFeatureCalculator Phase 1**:
+**In WhaleFootprintFeatureCalculator Phase 1**:
 
-- Các features hiện tại là **point-in-time** (per candle)
-- Average prices được track **cumulatively** trong ngày
+- Current features are **point-in-time** (per candle)
+- Average prices are tracked **cumulatively** within the day
 
-### 4. Monetary Units - QUAN TRỌNG ⚠️
+### 4. Monetary Units - IMPORTANT ⚠️
 
-**Tất cả giá trị tiền tệ (value) trong application đều có đơn vị TRIỆU (millions)**
+**All monetary values (value) in the application use MILLION (millions) as the unit**
 
 ```python
-# ✅ ĐÚNG - Flow trong code
-trade_value_raw = price × volume          # raw units (VNĐ)
+# ✅ CORRECT - Flow in code
+trade_value_raw = price × volume          # raw units (VND)
 threshold_scaled = 450 * 1_000_000        # scale threshold to raw
 is_shark = trade_value_raw >= threshold_scaled
 value_in_millions = trade_value_raw / 1_000_000  # convert to millions
 
 # 📊 Output
-"shark450_buy_value": 1250  # = 1,250 triệu VNĐ = 1.25 tỷ VNĐ
+"shark450_buy_value": 1250  # = 1,250 million VND = 1.25 billion VND
 ```
 
-**Lý do**:
+**Rationale**:
 
-- Tránh overflow khi làm việc với số lớn
-- Dễ đọc, dễ hiểu trong báo cáo
-- Consistency across entire application
+- Prevents overflow when working with large numbers
+- Easier to read and understand in reports
+- Consistency across the entire application
 
 ## External Dependencies & Cross-Service Contracts
 
@@ -169,4 +351,3 @@ value_in_millions = trade_value_raw / 1_000_000  # convert to millions
 - `metan-core`: logging (`Logger`), environment settings base class.
 - `metan-supabase`: provides configured `supabase` client shared across helpers and collectors.
 - `pendulum`, `pandas`, `requests`, `pydantic`: time handling, DataFrame features, HTTP, and typed models.
-
