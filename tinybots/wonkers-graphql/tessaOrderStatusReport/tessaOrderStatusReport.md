@@ -16,6 +16,7 @@ query {
     organisationReports {
       tessaOrderStatusReport(relationIds: [63]) {
         clientId
+        clientUuid
         teamId
         serial
         onlineStatus
@@ -46,6 +47,7 @@ query {
       ) {
         serial
         clientId
+        clientUuid
         # ...
       }
     }
@@ -75,12 +77,16 @@ The implementation integrates the report into the new `OrganisationReports` type
 - Extends the legacy `Report` type via Nexus (file: `src/graphql/schema/reports/reportExtension.ts`)
 - Status derivation uses legacy `getTaasOrderStatusString` utility for consistency with existing codebase
 - Date formatting uses `flattenDate` utility (returns ISO 8601 strings)
+- **[PROD-521]**: Processes ALL orders, even those without robots (serial and onlineStatus are nullable)
+- Includes `clientUuid` field from `taas_order.client_uuid` for ECD unique identifier
 
 ### Files Created/Modified
 
 1. **Schema Definition**: `src/graphql/schema/reports/tessaOrderStatusReport.ts`
-   - Defines `TessaOrderStatusReportRow` objectType with 18 fields
+   - Defines `TessaOrderStatusReportRow` objectType with 19 fields
    - All fields properly typed (nonNull/nullable)
+   - `serial`, `onlineStatus`, and `deviceLastSeen` are nullable (for orders without robots)
+   - Includes `clientUuid` for ECD unique identifier
 
 2. **Service Implementation**: `src/graphql/schema/reports/tessaOrderStatusReportService.ts`
    - Implements `buildReport()` method with Prisma cross-database queries
@@ -126,6 +132,7 @@ query MyQuery {
         organisationReports {
             tessaOrderStatusReport(relationIds: 63) {
                 clientId
+                clientUuid
                 teamId
                 serial
                 onlineStatus
@@ -161,6 +168,7 @@ query MyQueryWithPagination {
                 offset: 0
             ) {
                 clientId
+                clientUuid
                 teamId
                 serial
                 onlineStatus
@@ -210,6 +218,7 @@ query MyQueryWithPagination {
 | dashboard | `taas_order`         | `id`                        | Int (PK)        | -                         | Unique order identifier, maps to `salesOrderId`         |
 | dashboard | `taas_order`         | `relation_id`               | Int (FK)        | → `dashboard_relation.id` | Organization/relation filter                            |
 | dashboard | `taas_order`         | `client_id`                 | String          | -                         | Client identifier, maps to `clientId` output            |
+| dashboard | `taas_order`         | `client_uuid`               | String          | -                         | ECD unique identifier, maps to `clientUuid` output      |
 | dashboard | `taas_order`         | `team_id`                   | String          | -                         | Team identifier, maps to `teamId` output                |
 | dashboard | `taas_order`         | `taas_id`                   | Int (FK)        | → `taas_subscription.id`  | Links to subscription                                   |
 | dashboard | `taas_order`         | `created_at`                | DateTime        | -                         | Order creation timestamp, maps to `salesOrderReceivedAt` |
@@ -352,9 +361,10 @@ export const TessaOrderStatusReportRow = objectType({
   name: 'TessaOrderStatusReportRow',
   definition(t) {
     t.nullable.string('clientId', { description: 'Client identifier' })
+    t.nullable.string('clientUuid', { description: 'ECD unique identifier' })
     t.nullable.string('teamId', { description: 'Team identifier' })
-    t.nonNull.string('serial', { description: 'Robot serial number' })
-    t.nonNull.string('onlineStatus', { description: 'Current online status: ONLINE or OFFLINE' })
+    t.nullable.string('serial', { description: 'Robot serial number (null if no robot linked)' })
+    t.nullable.string('onlineStatus', { description: 'Current online status: ONLINE or OFFLINE (null if no robot)' })
     t.nullable.string('deviceLastSeen', { description: 'Last time robot was seen online (ISO 8601)' })
     t.nullable.string('salesOrderStatus', { description: 'Current order status' })
     t.nullable.string('salesOrderReceivedAt', { description: 'When order was created (ISO 8601)' })
@@ -375,7 +385,7 @@ export const TessaOrderStatusReportRow = objectType({
 
 #### AllReports Extension
 
-**File:** `src/graphql/schema/reports/allReportsExtension.ts`
+**File:** `src/graphql/schema/reports/organisationReportsExtension.ts`
 
 ```typescript
 import { intArg, list, nonNull, objectType } from 'nexus'
@@ -383,8 +393,8 @@ import { intArg, list, nonNull, objectType } from 'nexus'
 import { TessaOrderStatusReportRow } from './tessaOrderStatusReport'
 import { TessaOrderStatusReportService } from './tessaOrderStatusReportService'
 
-export const AllReports = objectType({
-  name: 'AllReports',
+export const OrganisationReports = objectType({
+  name: 'OrganisationReports',
   definition(t) {
     t.list.field('tessaOrderStatusReport', {
       type: nonNull(TessaOrderStatusReportRow),
@@ -404,8 +414,9 @@ export const AllReports = objectType({
 
 **Key Points:**
 - Uses `t.list.field()` to return array of report rows
-- Integrated into `AllReports` type (not direct Query extension)
+- Integrated into `OrganisationReports` type (not direct Query extension)
 - Properly typed with `nonNull(TessaOrderStatusReportRow)`
+- **[PROD-521]**: Processes all orders even without robots - `serial` and `onlineStatus` are nullable
 
 #### Service Implementation
 
@@ -544,9 +555,10 @@ import { formatISODate } from '../../utils/datetime'
 
 export interface TessaOrderStatusReportRow {
   clientId: string | null
+  clientUuid: string | null
   teamId: string | null
-  serial: string
-  onlineStatus: string
+  serial: string | null
+  onlineStatus: string | null
   deviceLastSeen: string | null
   salesOrderStatus: string | null
   salesOrderReceivedAt: string | null
@@ -965,6 +977,7 @@ describe('tessaOrderStatusReport GraphQL Query', () => {
 | GraphQL Field                | Database Source                               | Notes                                                        | Clarify                                                     |
 | ---------------------------- | --------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------- |
 | `clientId`                   | `taas_order.client_id`                        | Direct mapping                                               | taas_subscription?.clientId ?? taas_order?.clientId ?? null |
+| `clientUuid`                 | `taas_order.client_uuid`                      | ECD unique identifier                                        | ✔                                                           |
 | `teamId`                     | `taas_order.team_id`                          | Direct mapping                                               | taas_subscription?.teamId ?? taas_order?.teamId ?? null     |
 | `serial`                     | `dashboard_robot.serial`                      | Via subscription join                                        | ✔                                                           |
 | `onlineStatus`               | `robot_online_status.status_id`               | Derived: 0→OFFLINE, 1→ONLINE                                 | ✔ (serial -> robot_account->robot_online_status)            |
@@ -1033,10 +1046,11 @@ describe('tessaOrderStatusReport GraphQL Query', () => {
 ## Implementation Checklist
 
 - [x] ✅ Create GraphQL schema definition: `src/graphql/schema/reports/tessaOrderStatusReport.ts`
-  - [x] Define `TessaOrderStatusReportRow` object type with all 18 fields
+  - [x] Define `TessaOrderStatusReportRow` object type with all 19 fields (including `clientUuid`)
   - [x] Add nullable configuration for unavailable fields
-- [x] ✅ Create AllReports extension: `src/graphql/schema/reports/allReportsExtension.ts`
-  - [x] Extend `AllReports` type with `tessaOrderStatusReport` field
+  - [x] Make `serial` and `onlineStatus` nullable for [PROD-521] requirement
+- [x] ✅ Create OrganisationReports extension: `src/graphql/schema/reports/organisationReportsExtension.ts`
+  - [x] Extend `OrganisationReports` type with `tessaOrderStatusReport` field
   - [x] Add `relationIds`, `limit`, and `offset` arguments
   - [x] Use `t.list.field()` for array return type
 - [x] ✅ Implement service class: `src/graphql/schema/reports/tessaOrderStatusReportService.ts`
@@ -1063,7 +1077,7 @@ describe('tessaOrderStatusReport GraphQL Query', () => {
   - [x] Test pagination (with and without limit/offset)
   - [x] All tests passing ✅
 - [x] ✅ Write integration tests: `test/graphqlIT/reports/tessaOrderStatusReportIT.ts`
-  - [x] Test GraphQL query execution via `reports.allReports.tessaOrderStatusReport`
+  - [x] Test GraphQL query execution via `reports.organisationReports.tessaOrderStatusReport`
   - [x] Seed test data (relation, integration, contact, robot, subscription, order, order_status, tinybots)
   - [x] Test with seeded data
   - [x] Verify ISO 8601 date formatting
@@ -1102,7 +1116,7 @@ describe('tessaOrderStatusReport GraphQL Query', () => {
 **Status:** ✅ All tests passing
 
 **Test Coverage:**
-- ✅ Full GraphQL query execution through `reports.allReports.tessaOrderStatusReport`
+- ✅ Full GraphQL query execution through `reports.organisationReports.tessaOrderStatusReport`
 - ✅ Data seeding (relation, integration, contact, order, subscription, robot, online status)
 - ✅ Field validation (clientId, teamId, serial, onlineStatus, dates)
 - ✅ ISO 8601 date formatting
@@ -1151,7 +1165,7 @@ describe('tessaOrderStatusReport GraphQL Query', () => {
   - `salesOrderReturnedAt`: Maps to `taas_subscription.end_at`
   - `salesOrderShippedAt`: Maps to `taas_subscription.shipped_at`
   - `clientId`/`teamId`: Fallback logic - prefer subscription values, fallback to order values, then null
-- ✅ Integrated into `AllReports` type (not direct Query extension)
+- ✅ Integrated into `OrganisationReports` type (not direct Query extension)
 - ✅ Follow existing Nexus + Prisma patterns for consistency with new approach
 
 ### Key Learnings

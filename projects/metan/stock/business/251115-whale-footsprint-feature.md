@@ -71,9 +71,9 @@ Tạm thời sẽ dùng 2 threshold 450 và 900 để so sánh value xem có ph�
 
     **NOTE**: Hiện tại đang implementing là giá mua trung bình accumulate từ đầu ngày tới thời điểm của nến đang xem.
 
-- `avg_sharkXXX_buy_value_5d`, `avg_sharkXXX_sell_value_5d`
+- ~~`avg_sharkXXX_buy_value_5d`, `avg_sharkXXX_sell_value_5d`~~
 
-    It has not been implemented yet. Because I haven't found it's important right now
+    ~~It has not been implemented yet. Because I haven't found it's important right now~~
 
 - `percent_sharkXXX_buy_sell`, `percent_sheepXXX_buy_sell`, `percent_buy_sharkXXX_sheep`, `percent_sell_sharkXXX_sheep` (**IMPLEMENTED**)
 
