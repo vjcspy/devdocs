@@ -25,6 +25,20 @@ Find which reports have healthcare information (return reason, healthcare demand
 Remove these information from the reports
 ```
 
+## 📝 Updated Requirements (from Stakeholder)
+
+1. **Remove fields completely** (not mask) - breaking change accepted
+2. **For address fields:** 
+   - Add permission check: `TAAS_ORDER_ADDRESS_READ_ALL`
+   - If no permission → throw error (standard BaseResolver pattern)
+   - Keep address fields in schema for users with permission
+3. **Healthcare info fields always removed:**
+   - `discipline`
+   - `healthCareDemand`
+   - `returnReason`
+   - `healthcareProfessional`
+4. **Simplified implementation:** Remove directly in code, no masking utility needed
+
 ## 🎯 Objective
 
 Implement data masking for personal health information (PHI) in wonkers-graphql analytics reports to comply with NEN 7510 A.9.4.1 (2) requirements. Specifically, mask healthcare information fields (return reason, healthcare demand, discipline) and address data from all analytics endpoints and raw data queries.
@@ -47,33 +61,41 @@ Implement data masking for personal health information (PHI) in wonkers-graphql 
 
 ## 🔄 Implementation Plan
 
-### Phase 1: Analysis & Preparation
+### Phase 1: Analysis & Scope Verification ✅
 
-- [ ] Analyze existing data masking implementation for sales orders
-  - **Outcome**: Document the current masking pattern and approach used for sales orders
-  - **Location**: Check `src/resolvers/QueryResolver.ts`, `src/datasources/*`, and any masking utilities
-  
-- [ ] Identify all GraphQL queries and types that expose PHI
-  - **Outcome**: Complete list of queries/types to modify:
-    - `RawData.salesOrders` query
-    - `Report.inUseTessaReport` query  
-    - `Report.salesOrderInstallationReport` query
-    - `SalesOrder` type (in legacy schema)
-    - `InUseTessaReportRow` type
-    - `SalesOrderInstallationReportRow` type
-    - `Address` type
-  
-- [ ] Define masking rules and scope
-  - **Outcome**: Decision on masking approach:
-    - Complete removal (null) vs. masked placeholder (e.g., "***")
-    - Whether to apply at resolver level or data source level
-    - Permissions/roles that should bypass masking (if any)
-  
-- [ ] Review database schema to ensure understanding of PHI fields
-  - **Outcome**: Verified mapping between Prisma models and GraphQL types
-  - **Files**: `prisma/dashboard/schema.prisma`, `devtools/prisma/dashboard/schema.prisma`
+**Completed Analysis Results:**
 
-### Phase 2: Implementation (File/Code Structure)
+#### PHI Fields to Remove Completely:
+1. `discipline` (String)
+2. `healthCareDemand` (String)
+3. `returnReason` (String)
+4. `healthcareProfessional` (Contact type)
+
+#### Address Fields Requiring Permission:
+- `deliveryAddress` (Address type)
+- `pickupAddress` (Address type)
+- **Permission:** `Permission.TAAS_ORDER_ADDRESS_READ_ALL`
+- **Behavior:** Throw error if user lacks permission (using BaseResolver.Wrap pattern)
+
+#### Affected Queries & Types:
+1. **Legacy Schema:**
+   - `RawData.salesOrders` query
+   - `Organisation.salesOrders` query
+   - `Report.inUseTessaReport` query
+   - `AllOrganisationReports.inUseTessaReport` query
+   - `SalesOrder` GraphQL type
+   - `InUseTessaReportRow` GraphQL type
+
+2. **Reports:**
+   - `InUseTessaReportBuilder.ts` - removes discipline/healthCareDemand
+
+3. **Verified Clean:**
+   - ✅ `SalesOrderInstallationReportRow` - No PHI or address data
+   - ✅ `TessaOrderStatusReport` (Nexus) - No PHI fields
+
+### Phase 2: Implementation (Simplified Approach)
+
+**Strategy:** Remove fields directly in code, no masking utility needed.
 
 #### 🚧 Files to Modify:
 
@@ -81,155 +103,142 @@ Implement data masking for personal health information (PHI) in wonkers-graphql 
 wonkers-graphql/
 ├── src/
 │   ├── schema/
-│   │   ├── RawTaasOrderModel.ts         # 🔄 Update to mask PHI fields
-│   │   ├── InUseTessaReportModel.ts     # 🔄 Update to mask discipline, healthCareDemand
-│   │   └── SalesOrderInstallationReportModel.ts  # 🔄 Update if contains address data
+│   │   ├── RawTaasOrderModel.ts         # 🔄 Remove PHI fields from GraphQL type
+│   │   └── InUseTessaReportModel.ts     # 🔄 Remove discipline, healthCareDemand from GraphQL type
 │   ├── resolvers/
-│   │   └── QueryResolver.ts             # 🔄 Apply masking in resolvers
-│   ├── reports/
-│   │   ├── InUseTessaReportBuilder.ts   # 🔄 Mask PHI in report building
-│   │   └── SalesOrderInstallationReportBuilder.ts  # 🔄 Mask address data if present
-│   ├── datasources/
-│   │   └── TaasOrderApi.ts              # 🔄 Review and potentially apply masking at data source
-│   └── utils/                            # 🆕 NEW - Create masking utilities
-│       └── phiMasking.ts                # 🆕 NEW - PHI masking helper functions
+│   │   └── QueryResolver.ts             # 🔄 Add permission check for salesOrders queries
+│   └── reports/
+│       └── InUseTessaReportBuilder.ts   # 🔄 Remove PHI field assignments
 ```
 
 ### Phase 3: Detailed Implementation Steps
 
-#### Step 3.1: Create PHI Masking Utility
-- [ ] Create `src/utils/phiMasking.ts` with masking functions
-  - **Implementation**:
+#### Step 3.1: Remove PHI Fields from SalesOrder GraphQL Type
+- [x] Modify `src/schema/RawTaasOrderModel.ts`
+  - **Remove from class definition:**
+    - `discipline: string | null`
+    - `healthCareDemand: string | null`
+    - `returnReason: string | null`
+    - `healthcareProfessional: TaasOrderContact | null`
+  - **Remove from GraphQL type definition:**
+    - `discipline: String`
+    - `healthCareDemand: String`
+    - `returnReason: String`
+    - `healthcareProfessional: Contact`
+  - **Outcome:** SalesOrder type no longer exposes PHI
+
+#### Step 3.2: Add Permission Check to RawData.salesOrders
+- [x] Wrap resolver with `BaseResolver.Wrap` in `src/resolvers/QueryResolver.ts`
+  - **Location:** RawData.salesOrders resolver (line ~47)
+  - **Implementation:**
     ```typescript
-    // Utility to mask PHI fields in objects
-    export function maskHealthcareInformation<T extends Record<string, any>>(
-      data: T,
-      fieldsToMask: (keyof T)[]
-    ): T {
-      const masked = { ...data }
-      fieldsToMask.forEach(field => {
-        if (masked[field] !== null && masked[field] !== undefined) {
-          masked[field] = null // or '***' depending on requirement
-        }
-      })
-      return masked
-    }
-    
-    export function maskAddress(address: any): any {
-      if (!address) return null
-      return null // or return masked object with all fields nulled
-    }
-    
-    // Fields that contain PHI
-    export const PHI_FIELDS = {
-      healthcareDemand: true,
-      healthCareDemand: true,
-      healthcare_demand: true,
-      discipline: true,
-      disciplineId: true,
-      discipline_id: true,
-      returnReason: true,
-      return_reason: true,
-      deliveryAddress: true,
-      pickupAddress: true,
-      address: true,
-      healthcareProfessional: true
-    }
+    salesOrders: BaseResolver.Wrap(
+      {
+        selectUserId: (ctx) => ctx.dashboardUser?.id,
+        permissions: [Permission.TAAS_ORDER_ADDRESS_READ_ALL]
+      },
+      async (_, args, { dataSources }) => {
+        return dataSources.taasOrderApi.getRawTaasOrders({
+          ...args,
+          updatedSince: args.updatedSince == null ? null : moment(args.updatedSince).toISOString()
+        })
+      }
+    )
     ```
-  - **Outcome**: Reusable masking utility for consistent PHI handling
+  - **Outcome:** Throws error if user lacks TAAS_ORDER_ADDRESS_READ_ALL permission
 
-#### Step 3.2: Update RawData.salesOrders Query
-- [ ] Modify resolver in `src/resolvers/QueryResolver.ts`
-  - **Implementation**: Apply masking to sales orders returned from `getRawTaasOrders`
-  - **Location**: `Query.salesOrders` resolver (around line 47)
-  - **Changes**:
-    ```typescript
-    import { maskHealthcareInformation, maskAddress } from '../utils/phiMasking'
-    
-    salesOrders: async (_, args, { dataSources }) => {
-      const orders = await dataSources.taasOrderApi.getRawTaasOrders(args)
-      // Mask PHI from each order
-      return orders.map(order => ({
-        ...order,
-        healthCareDemand: null,
-        discipline: null,
-        returnReason: null,
-        deliveryAddress: maskAddress(order.deliveryAddress),
-        pickupAddress: maskAddress(order.pickupAddress),
-        healthcareProfessional: null
-      }))
-    }
-    ```
+#### Step 3.3: Add Permission Check to Organisation.salesOrders
+- [x] Wrap resolver with `BaseResolver.Wrap` in `src/resolvers/QueryResolver.ts`
+  - **Location:** Organisation.salesOrders resolver (line ~302)
+  - **Implementation:** Same pattern as Step 3.2
+  - **Outcome:** Consistent permission enforcement across all salesOrders queries
 
-#### Step 3.3: Update InUseTessaReport
-- [ ] Modify `src/reports/InUseTessaReportBuilder.ts`
-  - **Implementation**: Mask `discipline` and `healthCareDemand` in report rows
-  - **Location**: `createInUseTessaReports` method
-  - **Changes**: Before returning report rows, apply masking:
-    ```typescript
-    return reportRows.map(row => ({
-      ...row,
-      discipline: null,
-      healthCareDemand: null
-    }))
-    ```
-  - **Outcome**: InUseTessaReport no longer exposes PHI
+#### Step 3.4: Remove PHI Fields from InUseTessaReportRow Type
+- [x] Modify `src/schema/InUseTessaReportModel.ts`
+  - **Remove from class definition:**
+    - `discipline: string | null`
+    - `healthCareDemand: string | null`
+  - **Remove from GraphQL type definition:**
+    - `discipline: String`
+    - `healthCareDemand: String`
+  - **Outcome:** InUseTessaReportRow type no longer exposes PHI
 
-#### Step 3.4: Update SalesOrderInstallationReport (if needed)
-- [ ] Review `src/reports/SalesOrderInstallationReportBuilder.ts`
-  - **Task**: Check if this report exposes any PHI or address data
-  - **Action**: If yes, apply appropriate masking similar to Step 3.3
-  - **Outcome**: Confirmation that report is compliant
-
-#### Step 3.5: Update GraphQL Type Definitions (Optional)
-- [ ] Consider updating `src/schema/RawTaasOrderModel.ts` and `InUseTessaReportModel.ts`
-  - **Task**: Update comments/documentation to indicate fields are masked
-  - **Changes**: Add comments like `@deprecated PHI - Masked for compliance`
-  - **Outcome**: Clear documentation for API consumers
-
-#### Step 3.6: Handle Legacy vs New Architecture
-- [ ] Ensure masking applies to both legacy and Nexus schemas
-  - **Legacy**: Handled in resolvers (Step 3.2)
-  - **New (Nexus)**: Check if `src/graphql/schema/**` exposes any of these reports
-  - **Task**: Search for any Prisma-based queries that might expose PHI
-  - **Outcome**: Consistent masking across both architectures
+#### Step 3.5: Remove PHI Assignments in InUseTessaReportBuilder
+- [x] Modify `src/reports/InUseTessaReportBuilder.ts`
+  - **Location:** `createInUseTessaReport` method (line ~86-87)
+  - **Remove lines:**
+    - `discipline: rawTaasOrder?.discipline ?? null,`
+    - `healthCareDemand: rawTaasOrder?.healthCareDemand ?? null,`
+  - **Outcome:** Report builder no longer includes PHI in output
 
 ### Phase 4: Testing & Validation
 
+- [x] **Unit Tests Created:**
+  - **File:** `test/SalesOrderPermissionTest.ts`
+    - Tests permission check for `RawData.salesOrders`
+    - Tests permission check for `Organisation.salesOrders`
+    - Tests FORBIDDEN error when user lacks `TAAS_ORDER_ADDRESS_READ_ALL`
+    - Tests that PHI fields (discipline, healthCareDemand, returnReason, healthcareProfessional) cannot be queried
+  - **File:** `test/InUseTessaReportPhiRemovalTest.ts`
+    - Tests that discipline and healthCareDemand are removed from InUseTessaReportRow
+    - Tests report builder does not include PHI fields in output
+    - Tests GraphQL schema validation fails when trying to query removed fields
+
 - [ ] Manual testing of affected queries
-  - **Test Cases**:
-    1. Query `rawData.salesOrders` - verify all PHI fields are null/masked
-    2. Query `reports.inUseTessaReport` - verify discipline and healthCareDemand are masked
-    3. Query `reports.salesOrderInstallationReport` - verify no address leaks
-    4. Check organization-level reports if they expose these fields
-  - **Outcome**: All PHI fields properly masked in responses
+  - **Test Cases:**
+    1. **Query `rawData.salesOrders` without permission:**
+       - Should throw GraphQLError with FORBIDDEN code
+       - Verify error message indicates missing permission
+    2. **Query `rawData.salesOrders` with permission:**
+       - Should return sales orders successfully
+       - Verify no `discipline`, `healthCareDemand`, `returnReason`, `healthcareProfessional` fields in response
+       - Verify `deliveryAddress` and `pickupAddress` are present
+    3. **Query `organisation.salesOrders` with/without permission:**
+       - Same behavior as RawData.salesOrders
+    4. **Query `reports.inUseTessaReport`:**
+       - Verify no `discipline` and `healthCareDemand` fields in response
+       - Verify report builds successfully
+    5. **Query organisation-level `inUseTessaReport`:**
+       - Same as above
+  - **Outcome:** All PHI fields removed, permission enforcement working
+
+- [ ] Run test suite
+  - **Command:** `npm test` or `pnpm test`
+  - **Expected:** All tests pass including new permission tests
+  - **Outcome:** Test suite passes without errors
+
+- [ ] Verify GraphQL schema changes
+  - **Task:** Generate and review GraphQL schema
+  - **Check:** Removed fields no longer appear in schema introspection
+  - **Outcome:** Schema reflects compliance requirements
 
 - [ ] Review with compliance/security team
-  - **Task**: Present implementation to team for audit review
-  - **Outcome**: Sign-off that implementation meets NEN 7510 A.9.4.1 (2)
+  - **Task:** Present implementation to team for audit review
+  - **Outcome:** Sign-off that implementation meets NEN 7510 A.9.4.1 (2)
 
 - [ ] Document changes
-  - **Update**: `devdocs/tinybots/wonkers-graphql/OVERVIEW.md` with PHI masking information
-  - **Outcome**: Clear documentation for future developers
+  - **Update:** `devdocs/tinybots/wonkers-graphql/OVERVIEW.md` with PHI removal information
+  - **Outcome:** Clear documentation for future developers
 
 ### Phase 5: Deployment & Monitoring
 
 - [ ] Deploy to staging environment
-  - **Verify**: No breaking changes to downstream analytics consumers
-  - **Outcome**: Staging validation complete
+  - **Note:** Breaking changes expected - analytics consumers will need updates
+  - **Outcome:** Staging validation complete
 
 - [ ] Coordinate with analytics tool users
-  - **Task**: Notify users that healthcare information will no longer be available in reports
-  - **Outcome**: Stakeholders informed and prepared
+  - **Task:** Notify users that healthcare information fields have been removed
+  - **Action:** Provide list of removed fields and permission requirements
+  - **Outcome:** Stakeholders informed and prepared
 
 - [ ] Deploy to production
-  - **Task**: Standard deployment process
-  - **Monitor**: Check logs for any errors related to masking
-  - **Outcome**: Production deployment successful
+  - **Task:** Standard deployment process
+  - **Monitor:** Check logs for permission errors
+  - **Outcome:** Production deployment successful
 
 - [ ] Confirm audit compliance
-  - **Task**: Update audit documentation showing compliance implementation
-  - **Outcome**: Audit NC closed
+  - **Task:** Update audit documentation showing compliance implementation
+  - **Outcome:** Audit NC closed
 
 ## 📊 Summary of Results
 > Do not summarize the results until the implementation is done
@@ -239,20 +248,64 @@ wonkers-graphql/
 
 ## 🚧 Outstanding Issues & Follow-up
 
-### ⚠️ Issues/Clarifications
+### ⚠️ Known Impact & Decisions
 
-- [ ] **Decision Required**: Should PHI fields return `null` or a masked placeholder like `"[MASKED]"`?
-  - **Impact**: API contract with analytics consumers
-  - **Recommendation**: `null` is cleaner and more explicit
+- [x] **Breaking Change Confirmed:** Fields removed from GraphQL schema
+  - **Decision:** Stakeholder confirmed no need to care about breaking changes
+  - **Impact:** Analytics tools querying these fields will receive errors
 
-- [ ] **Permission Consideration**: Should certain user roles (e.g., healthcare professionals) have access to unmasked data?
-  - **Impact**: Requires permission checking in resolvers
-  - **Recommendation**: Discuss with compliance team before implementing role-based access
+- [x] **Permission Enforcement Approach:** Use existing BaseResolver.Wrap pattern
+  - **Decision:** Keep current permission error behavior (throw GraphQLError)
+  - **Behavior:** Users without `TAAS_ORDER_ADDRESS_READ_ALL` cannot query salesOrders
 
-- [ ] **Data Access for Internal Tools**: Are there internal Tinybots tools that require access to this data?
-  - **Impact**: May need separate internal-only endpoints
-  - **Recommendation**: Use separate internal GraphQL endpoints if needed
+- [x] **Scope Confirmed:** Remove PHI from all queries that expose SalesOrder or InUseTessaReport
+  - **Queries affected:**
+    - `RawData.salesOrders`
+    - `Organisation.salesOrders`
+    - `Report.inUseTessaReport`
+    - `AllOrganisationReports.inUseTessaReport`
 
-- [ ] **Backwards Compatibility**: Will masking break existing analytics dashboards?
-  - **Impact**: Downstream consumers may need updates
-  - **Recommendation**: Communication plan with analytics users before deployment
+### 📋 Post-Implementation Tasks
+
+- [ ] **Update API Documentation:** Notify consumers about removed fields
+  - Fields removed: `discipline`, `healthCareDemand`, `returnReason`, `healthcareProfessional`
+  - Permission required for `salesOrders` queries: `TAAS_ORDER_ADDRESS_READ_ALL`
+
+- [ ] **Monitor Permission Errors:** Track users hitting permission errors
+  - Review logs for `FORBIDDEN` errors on salesOrders queries
+  - Work with stakeholders to grant permissions as needed
+
+- [ ] **Analytics Tool Migration:** Coordinate with tool owners
+  - Update queries to remove references to deleted fields
+  - Ensure tools handle permission errors gracefully
+
+
+
+
+
+**Personal Information**
+
+- **Year of Birth:** 1992
+- **English Proficiency:** Intermediate
+
+**Professional Experience**
+
+- **Total Experience:** 12+ years
+  - Full-stack capabilities (Frontend, Backend, and DevOps).
+  - **Certifications:** AWS, K8S (Kubernetes), Harness, Terraform.
+- **PHP Expertise:** 10 years
+- **Key Domains:** * **Banking:** Top-tier Australian banks.
+  - **E-commerce:** Global brands including Nestle (Japan), Lotte (Korea), and BigC (Thailand).
+  - **Blockchain:** Crypto projects.
+- **Platforms & Frameworks:** Extensive experience with WordPress and **Magento** (widely recognized as one of the most complex PHP frameworks).
+
+**Employment Details**
+
+- **Expected Salary:** $2,000 (Net/Gross - *tùy bạn bổ sung*)
+- **Availability:** Immediate (Ready to start now)
+- **Reason for leaving recent short-term roles:** I am looking for a **Remote** position that offers flexibility. My goal is to optimize my productivity through better time management while maintaining a healthy work-life balance.
+
+**Expectations for this Role**
+
+- I have a deep passion for coding and want to dedicate my focus to technical excellence.
+- I am eager to apply my creative problem-solving skills and extensive technical background to optimize and innovate within your system.
