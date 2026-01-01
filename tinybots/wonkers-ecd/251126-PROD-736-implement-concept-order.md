@@ -315,31 +315,54 @@ public async subscribe(notification: PuurNotificationDto, integrationUser: Integ
   // 2. REMOVED: Order lookup and blocking check
   // Concept orders accept all input, no duplicate checking
   
-  // 3. Enrich from Ecare APIs (best-effort, use defaults on failure)
-  let client: Client
+  // 3. Get auth headers first (centralized - if this fails, skip all enrichment)
+  let eCareHeaders: { Authorization: string } | null = null
   try {
-    const eCareHeaders = await this.ecarePuurApiService.getHeaders(integrationUser.id)
-    client = await this.ecarePuurApiService.getClient(eCareHeaders, notification.PatientId, integrationUser.id)
-    
-    // Only enrich requester if not already in form
-    if (subscribeFields.requesterEmail == null) {
-      const requester = await this.ecarePuurApiService.getRequester(eCareHeaders, notification.SenderId, integrationUser.id)
-      subscribeFields.requesterEmail = requester.email
-      subscribeFields.requesterFirstname = requester.firstname
-      subscribeFields.requesterLastname = requester.lastname
-      subscribeFields.requesterPhoneNumber = requester.phoneNumber
-    }
+    eCareHeaders = await this.ecarePuurApiService.getHeaders(integrationUser.id)
   } catch (error) {
-    console.warn('Ecare API enrichment failed, using defaults', error)
-    // Use minimal client data
+    console.warn('Failed to get Ecare auth headers, skipping all enrichment', error)
+  }
+  
+  // 3a. Enrich client from Ecare API (best-effort)
+  let client: Client
+  if (eCareHeaders) {
+    try {
+      client = await this.ecarePuurApiService.getClient(eCareHeaders, notification.PatientId, integrationUser.id)
+    } catch (error) {
+      console.warn('Client API enrichment failed, using defaults', error)
+      client = {
+        ecareNumber: 'UNKNOWN',
+        clientUuid: notification.PatientId,
+        name: 'UNKNOWN',
+        system: 'ECARE PUUR'
+      }
+    }
+  } else {
     client = {
       ecareNumber: 'UNKNOWN',
       clientUuid: notification.PatientId,
       name: 'UNKNOWN',
       system: 'ECARE PUUR'
     }
-    // Use default requester if missing
-    if (subscribeFields.requesterEmail == null) {
+  }
+  
+  // 3b. Enrich requester from Employee API (best-effort, only if not in form)
+  if (subscribeFields.requesterEmail == null) {
+    if (eCareHeaders) {
+      try {
+        const requester = await this.ecarePuurApiService.getRequester(eCareHeaders, notification.SenderId, integrationUser.id)
+        subscribeFields.requesterEmail = requester.email
+        subscribeFields.requesterFirstname = requester.firstname
+        subscribeFields.requesterLastname = requester.lastname
+        subscribeFields.requesterPhoneNumber = requester.phoneNumber
+      } catch (error) {
+        console.warn('Requester API enrichment failed, using defaults', error)
+        subscribeFields.requesterEmail = 'operations@tinybots.nl'
+        subscribeFields.requesterFirstname = notification.SenderId ?? 'UNKNOWN'
+        subscribeFields.requesterLastname = 'ERROR RETRIEVING EMPLOYEE'
+        subscribeFields.requesterPhoneNumber = '0612345678'
+      }
+    } else {
       subscribeFields.requesterEmail = 'operations@tinybots.nl'
       subscribeFields.requesterFirstname = notification.SenderId ?? 'UNKNOWN'
       subscribeFields.requesterLastname = 'ERROR RETRIEVING EMPLOYEE'
@@ -347,15 +370,17 @@ public async subscribe(notification: PuurNotificationDto, integrationUser: Integ
     }
   }
   
+  // 3c. Enrich careteam (best-effort)
   let careteam = 'UNKNOWN'
-  try {
-    const eCareHeaders = await this.ecarePuurApiService.getHeaders(integrationUser.id)
-    careteam = await this.ecarePuurTeamService.getTeamsString(eCareHeaders, notification, integrationUser.id)
-    if (!careteam || careteam.length === 0) {
-      careteam = 'UNKNOWN'
+  if (eCareHeaders) {
+    try {
+      careteam = await this.ecarePuurTeamService.getTeamsString(eCareHeaders, notification, integrationUser.id)
+      if (!careteam || careteam.length === 0) {
+        careteam = 'UNKNOWN'
+      }
+    } catch (error) {
+      console.warn('Careteam lookup failed, using UNKNOWN', error)
     }
-  } catch (error) {
-    console.warn('Careteam lookup failed, using UNKNOWN', error)
   }
   
   // 4. Build concept order DTO (structured data)
@@ -387,7 +412,9 @@ public async subscribe(notification: PuurNotificationDto, integrationUser: Integ
 **Key Changes:**
 
 - Remove order lookup and duplicate check (accept all input)
-- Wrap ALL API calls in try-catch with default fallbacks
+- **Centralize auth header retrieval:** Get `eCareHeaders` once at the beginning, skip all enrichment if auth fails
+- Wrap ALL API calls in try-catch with default fallbacks (client, requester, careteam)
+- Split enrichment into separate steps (3a: client, 3b: requester, 3c: careteam) for better error isolation
 - Call `mapNotificationToForm()` to preserve raw data
 - Call `ConceptService.createConceptOrder(form, orderDto)` with BOTH parameters
 - Remove `ClientIdRepository` tracking (concept service handles this)
@@ -444,34 +471,29 @@ public async unsubscribe(notification: PuurNotificationDto, integrationUser: Int
   // 1. Map without throwing (all fields optional now)
   const unsubscribeFields = await this.ecarePuurMappingService.mapUnsubscribePuurNotification(notification, relationId)
   
-  // 2. Enrich returner (best-effort, use defaults on failure)
-  if (unsubscribeFields.returnerEmail == null) {
-    try {
-      const eCareHeaders = await this.ecarePuurApiService.getHeaders(integrationUser.id)
-      const returner = await this.ecarePuurApiService.getRequester(eCareHeaders, notification.SenderId, integrationUser.id)
-      unsubscribeFields.returnerEmail = returner.email
-      unsubscribeFields.returnerFirstname = returner.firstname
-      unsubscribeFields.returnerLastname = returner.lastname
-      unsubscribeFields.returnerPhoneNumber = returner.phoneNumber
-    } catch (error) {
-      console.warn('Returner lookup failed, using defaults', error)
-      unsubscribeFields.returnerEmail = 'operations@tinybots.nl'
-      unsubscribeFields.returnerFirstname = notification.SenderId ?? 'UNKNOWN'
-      unsubscribeFields.returnerLastname = 'ERROR RETRIEVING EMPLOYEE'
-      unsubscribeFields.returnerPhoneNumber = '0612345678'
-    }
+  // 2. Get auth headers first (centralized - if this fails, skip all enrichment)
+  let eCareHeaders: { Authorization: string } | null = null
+  try {
+    eCareHeaders = await this.ecarePuurApiService.getHeaders(integrationUser.id)
+  } catch (error) {
+    console.warn('Failed to get Ecare auth headers, skipping all enrichment', error)
   }
   
-  // 3. Build concept return DTO (structured data)
-  const returnDto = this.ecarePuurMappingService.mapUnsubscribe(notification, unsubscribeFields, integrationUser)
-  
-  // 4. Get client data (best-effort)
+  // 3. Enrich client from Ecare API (best-effort)
   let client: Client
-  try {
-    const eCareHeaders = await this.ecarePuurApiService.getHeaders(integrationUser.id)
-    client = await this.ecarePuurApiService.getClient(eCareHeaders, notification.PatientId, integrationUser.id)
-  } catch (error) {
-    console.warn('Client lookup failed, using defaults', error)
+  if (eCareHeaders) {
+    try {
+      client = await this.ecarePuurApiService.getClient(eCareHeaders, notification.PatientId, integrationUser.id)
+    } catch (error) {
+      console.warn('Client lookup failed, using defaults', error)
+      client = {
+        ecareNumber: 'UNKNOWN',
+        clientUuid: notification.PatientId,
+        name: 'UNKNOWN',
+        system: 'ECARE PUUR'
+      }
+    }
+  } else {
     client = {
       ecareNumber: 'UNKNOWN',
       clientUuid: notification.PatientId,
@@ -479,6 +501,33 @@ public async unsubscribe(notification: PuurNotificationDto, integrationUser: Int
       system: 'ECARE PUUR'
     }
   }
+  
+  // 4. Enrich returner from Employee API (best-effort, only if not in form)
+  if (unsubscribeFields.returnerEmail == null) {
+    if (eCareHeaders) {
+      try {
+        const returner = await this.ecarePuurApiService.getRequester(eCareHeaders, notification.SenderId, integrationUser.id)
+        unsubscribeFields.returnerEmail = returner.email
+        unsubscribeFields.returnerFirstname = returner.firstname
+        unsubscribeFields.returnerLastname = returner.lastname
+        unsubscribeFields.returnerPhoneNumber = returner.phoneNumber
+      } catch (error) {
+        console.warn('Returner lookup failed, using defaults', error)
+        unsubscribeFields.returnerEmail = 'operations@tinybots.nl'
+        unsubscribeFields.returnerFirstname = notification.SenderId ?? 'UNKNOWN'
+        unsubscribeFields.returnerLastname = 'ERROR RETRIEVING EMPLOYEE'
+        unsubscribeFields.returnerPhoneNumber = '0612345678'
+      }
+    } else {
+      unsubscribeFields.returnerEmail = 'operations@tinybots.nl'
+      unsubscribeFields.returnerFirstname = notification.SenderId ?? 'UNKNOWN'
+      unsubscribeFields.returnerLastname = 'ERROR RETRIEVING EMPLOYEE'
+      unsubscribeFields.returnerPhoneNumber = '0612345678'
+    }
+  }
+  
+  // 4. Build concept return DTO (structured data)
+  const returnDto = this.ecarePuurMappingService.mapUnsubscribe(notification, unsubscribeFields, integrationUser)
   
   // 5. Build raw form (ALL AdditionalFields preserved)
   const form = this.ecarePuurMappingService.mapNotificationToForm(notification, client, integrationUser)
@@ -1011,3 +1060,103 @@ Task 0 (mapNotificationToForm)
 - Task 3: ~3-4 hours (controller updates + integration tests + manual verification)
 
 Total estimated effort: ~15-21 hours
+---
+
+## 🔄 Implementation Refinements (Post-Implementation Review)
+
+*This section documents key refinements made during actual implementation that differ from the original plan. These refinements improved the code quality without changing the core functionality.*
+
+### ✅ Refinement 1: Centralized Auth Header Retrieval
+
+**Original Plan:**
+The plan showed getting `eCareHeaders` separately for each API call (getClient, getRequester, getTeamsString), each wrapped in its own try-catch.
+
+**Actual Implementation:**
+```typescript
+// Get auth headers ONCE at the beginning
+let eCareHeaders: { Authorization: string } | null = null
+try {
+  eCareHeaders = await this.ecarePuurApiService.getHeaders(integrationUser.id)
+} catch (error) {
+  console.warn('Failed to get Ecare auth headers, skipping all enrichment', error)
+}
+
+// Then check eCareHeaders before each API call
+if (eCareHeaders) {
+  try {
+    client = await this.ecarePuurApiService.getClient(eCareHeaders, ...)
+  } catch (error) { ... }
+} else {
+  client = { /* defaults */ }
+}
+```
+
+**Rationale:**
+- **More efficient:** Calls auth API once instead of 3+ times
+- **Better error handling:** If auth fails, skip ALL enrichment immediately (faster fallback)
+- **Cleaner code:** Conditional enrichment based on `eCareHeaders` availability
+- **Same behavior:** Still achieves best-effort enrichment with fallback defaults
+
+**Impact:** No functional change - both approaches accept all input and use defaults on failure. The actual implementation is more efficient.
+
+### ✅ Refinement 2: Separated Enrichment Steps (3a, 3b, 3c)
+
+**Original Plan:**
+Showed a single try-catch block for all enrichment (client + requester).
+
+**Actual Implementation:**
+```typescript
+// 3a. Enrich client
+if (eCareHeaders) { try { client = ... } catch { /* client defaults */ } }
+
+// 3b. Enrich requester  
+if (eCareHeaders && requesterEmail == null) { 
+  try { requester = ... } catch { /* requester defaults */ }
+}
+
+// 3c. Enrich careteam
+if (eCareHeaders) { try { careteam = ... } catch { /* careteam defaults */ } }
+```
+
+**Rationale:**
+- **Better error isolation:** Client enrichment failure doesn't block requester enrichment
+- **Clearer code:** Each enrichment step is independent
+- **Easier debugging:** Can see exactly which enrichment step failed
+
+**Impact:** Improved error handling - if client API fails but requester API works, we still get requester data (instead of falling back to all defaults).
+
+### ✅ Refinement 3: Git Commit History
+
+Actual implementation was done in multiple commits for better tracking:
+
+1. `1019c91` - Initial concept order integration (removed old services, added ConceptService)
+2. `1fefdbd` - Enhanced with relaxed validation and test coverage
+3. `bd2c0e8` - Simplified test data and improved mocks
+4. `35e7cf1` - Added comprehensive EcarePuurServiceTest
+5. `6529f8d` - Split client and requester enrichment (Refinement 2)
+6. `1d499f5` - Centralized auth header retrieval (Refinement 1)
+7. `b85f6ff` - Clean up comments
+8. `2b2b3aa` - Extended integration tests
+9. `e74d45e` - Cleaned up redundant properties in tests
+10. `e7d6a22` - Added team ID validation for multiCareteamResponse
+
+**Note:** These commits show iterative refinement - starting with the core concept order flow, then optimizing error handling and enrichment logic.
+
+### 📝 Summary of Refinements
+
+All refinements maintain the core requirements:
+- ✅ Accept all input (no validation blocking)
+- ✅ Best-effort API enrichment with fallback defaults
+- ✅ Preserve raw form data via `mapNotificationToForm()`
+- ✅ Create concept orders/returns via ConceptService
+- ✅ No order lookup on unsubscribe
+
+The actual implementation is MORE robust than the plan due to:
+- Centralized auth (fewer API calls, faster fallback)
+- Separated enrichment steps (better error isolation)
+- Comprehensive test coverage (98 tests passing)
+
+**Files Updated in Plan (December 31, 2025):**
+- Aligned subscribe/unsubscribe flow code examples with actual implementation
+- Added "Key Changes" note about centralized auth header retrieval
+- Added this "Implementation Refinements" section to document post-implementation learnings

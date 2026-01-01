@@ -1,4 +1,8 @@
-# VN30 Aggregate Whale Footprint Features - Implementation Plan
+# VN30 Aggregate Whale Footprint Features
+
+> **Status:** ✅ IMPLEMENTED  
+> **Branch:** `feature/vn30-aggregate-whale-footprint`  
+> **Last Updated:** 2025-12-31
 
 ## Overview
 
@@ -476,12 +480,180 @@ VN30_FEATURES = [
 
 ---
 
-## Next Steps
+## ✅ Implementation Status
 
-1. [ ] **Phase 1:** Update Supabase schema - thêm intermediate columns
-2. [ ] **Phase 2:** Update `WhaleFootprintFeatureCalculator` - lưu intermediate values
-3. [ ] **Phase 3:** Create `VN30WhaleFootprintAggregator` 
-4. [ ] Backfill data cho existing features (nếu cần)
-5. [ ] Test aggregate calculations
-6. [ ] (Optional) Phase 4: Add cross-stock statistics
+| Phase | Status | Description |
+|-------|--------|-------------|
+| Phase 1 | ✅ Done | Update `WhaleFootprintFeatureCalculator` - thêm intermediate values |
+| Phase 2 | ✅ Done | Create `VN30WhaleFootprintAggregator` |
+| Phase 3 | ✅ Done | Test aggregate calculations |
+| Phase 4 | ⏳ Pending | Add cross-stock statistics (optional) |
+
+---
+
+## Implementation Details
+
+### Files Created/Modified
+
+```
+packages/stock/metan/stock/trading/domain/feature/
+├── calculator/
+│   └── whale_footprint/
+│       ├── constants.py                    # NEW - Shared thresholds
+│       ├── whale_footprint_feature_calculator.py  # MODIFIED
+│       └── features/
+│           └── intermediate_values.py      # NEW - Intermediate values for VN30
+└── aggregator/                             # NEW - Directory
+    └── vn30/
+        ├── __init__.py
+        └── vn30_whale_footprint_aggregator.py
+```
+
+### Constants (Shared)
+
+```python
+# packages/stock/.../whale_footprint/constants.py
+WHALE_FOOTPRINT_THRESHOLDS: list[int] = [450, 900]
+WHALE_FOOTPRINT_CATEGORIES: list[str] = ["shark", "sheep"]
+WHALE_FOOTPRINT_SIDES: list[str] = ["buy", "sell"]
+```
+
+### Intermediate Values Added
+
+Per-symbol features table now includes:
+
+```python
+# Added to each candle row
+{
+    "pc_value_5d": 169.85,           # Baseline for ratio calculation
+    "close_price": 25000,            # For market cap weight
+    "accum_shark450_buy_value": 123.45,   # Accumulated values
+    "accum_shark450_sell_value": 67.89,
+    "accum_sheep450_buy_value": 234.56,
+    "accum_sheep450_sell_value": 189.01,
+    # Same for threshold 900...
+}
+```
+
+### Error Handling
+
+```python
+# Raises ValueError if:
+# - sum_pc_5d <= 0 (invalid baseline data)
+# - close_price <= 0 (invalid price data)
+# - missing total_shares for any symbol
+```
+
+---
+
+## Sample Output
+
+Tested with date range `2023-09-20` to `2023-12-20`:
+
+```python
+# Sample row at first candle
+{
+    # Value Features (Simple Sum across 30 stocks) - Unit: millions VND
+    "vn30_shark450_buy_value": 48942.0,     # 48.9 billion VND shark buy
+    "vn30_shark450_sell_value": 16111.0,    # 16.1 billion VND shark sell
+    "vn30_sheep450_buy_value": 36914.0,     # 36.9 billion VND retail buy
+    "vn30_sheep450_sell_value": 30481.0,    # 30.5 billion VND retail sell
+    "vn30_shark900_buy_value": 30357.0,
+    "vn30_shark900_sell_value": 7971.0,
+    "vn30_sheep900_buy_value": 55499.0,
+    "vn30_sheep900_sell_value": 38621.0,
+    
+    # Ratio vs 5-day Baseline (dimensionless)
+    "vn30_shark450_buy_ratio_5d_pc": 0.2881,  # 28.8% of avg 5-day per-candle value
+    "vn30_shark450_sell_ratio_5d_pc": 0.0949,
+    "vn30_sheep450_buy_ratio_5d_pc": 0.2173,
+    "vn30_sheep450_sell_ratio_5d_pc": 0.1795,
+    "vn30_shark900_buy_ratio_5d_pc": 0.1787,
+    "vn30_shark900_sell_ratio_5d_pc": 0.0469,
+    "vn30_sheep900_buy_ratio_5d_pc": 0.3267,
+    "vn30_sheep900_sell_ratio_5d_pc": 0.2274,
+    
+    # Percent Features (current candle)
+    "vn30_percent_shark450_buy_sell": 75.23,      # 75% of shark activity is BUY
+    "vn30_percent_sheep450_buy_sell": 54.77,      # 55% of retail activity is BUY
+    "vn30_percent_buy_shark450_sheep": 57.0,      # 57% of buy pressure from shark
+    "vn30_percent_sell_shark450_sheep": 34.58,    # 35% of sell pressure from shark
+    "vn30_percent_shark900_buy_sell": 79.2,
+    "vn30_percent_sheep900_buy_sell": 58.97,
+    "vn30_percent_buy_shark900_sheep": 35.36,
+    "vn30_percent_sell_shark900_sheep": 17.11,
+    
+    # Accumulated Percent (from session start)
+    "vn30_accum_percent_shark450_buy_sell": 75.23,
+    "vn30_accum_percent_sheep450_buy_sell": 54.79,
+    "vn30_accum_percent_buy_shark450_sheep": 56.85,
+    "vn30_accum_percent_sell_shark450_sheep": 34.45,
+    "vn30_accum_percent_shark900_buy_sell": 79.2,
+    "vn30_accum_percent_sheep900_buy_sell": 58.96,
+    "vn30_accum_percent_buy_shark900_sheep": 35.26,
+    "vn30_accum_percent_sell_shark900_sheep": 17.04,
+    
+    # Urgency Spread (Market Cap Weighted, %)
+    "vn30_shark450_urgency_spread": 0.17,   # Shark buying 0.17% higher than selling
+    "vn30_shark900_urgency_spread": 0.1177,
+}
+```
+
+### Feature Interpretation for AI Model
+
+| Feature | Value | Interpretation |
+|---------|-------|----------------|
+| `vn30_percent_shark450_buy_sell = 75%` | Bullish | 75% of institutional money is buying |
+| `vn30_percent_buy_shark450_sheep = 57%` | Strong | Institutions dominate buy side |
+| `vn30_shark450_urgency_spread = +0.17%` | Mild Bullish | Sharks willing to pay slightly higher |
+| `vn30_shark450_buy_ratio_5d_pc = 0.29` | Above Average | Shark buying 29% of avg 5-day volume |
+
+---
+
+## Usage
+
+### Running the Pipeline
+
+```python
+from metan.stock.testbed.calculate_vn30_aggregate import run_full_pipeline
+
+# Full pipeline: calculate for each symbol + aggregate
+df = run_full_pipeline(
+    start_date="2023-09-20",
+    end_date="2023-12-20",
+    skip_symbol_calculation=False,  # Set True if features already calculated
+)
+```
+
+### Using in AI Model
+
+```python
+from metan.stock.trading.domain.feature.aggregator.vn30 import VN30WhaleFootprintAggregator
+
+# Get VN30 features for model input
+aggregator = VN30WhaleFootprintAggregator(
+    start_date="2025-01-02",
+    end_date="2025-01-03",
+)
+features_df = aggregator.calculate()
+
+# Features ready for ML model
+X = features_df[[
+    "vn30_shark450_buy_ratio_5d_pc",
+    "vn30_percent_shark450_buy_sell",
+    "vn30_shark450_urgency_spread",
+    # ... other features
+]]
+```
+
+---
+
+## Next Steps for AI Model
+
+1. [ ] Combine with VN30F1M price data as target variable
+2. [ ] Add time-based features (time of day, day of week)
+3. [ ] Add technical indicators on VN30 index
+4. [ ] Feature selection / importance analysis
+5. [ ] Train prediction model (classification or regression)
+6. [ ] Backtest trading strategy
 
