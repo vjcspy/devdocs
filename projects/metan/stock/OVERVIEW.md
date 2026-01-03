@@ -2,7 +2,7 @@
 >
 > **Branch:** master  
 > **Last Commit:** 6fc4cba  
-> **Last Updated:** Wed Jan 01 2026 +0700
+> **Last Updated:** Sat Jan 03 2026 +0700
 
 ## Stock Package Overview (TL;DR)
 
@@ -10,19 +10,37 @@
 - Primary data source for features: `tick_candles_by_date()` → candles built from actual ticks, containing `tick_actions` for shark/sheep trade classification.
 - Data sources: Supabase (ticks, prices, stock metadata) and TCBS REST (intraday candles - limited).
 - Core flows: `info` (prepare market data) → `trading` (compute features) → Supabase persistence.
-- **NEW (Dec 2025)**: VN30 Index Calculator & VN30 Whale Footprint Aggregator for VN30F1M AI prediction.
-- **NEW (Jan 2026)**: `TickVN30IndexCalculator` - calculates VN30 index from tick candle data for consistency with whale footprint features.
+- **COMPLETED (Jan 2026)**: `VN30FeaturePipeline` - end-to-end pipeline for building VN30 features ready for AI model prediction of VN30F1M.
+
+## Current Status: Ready for AI Model Testing 🎯
+
+The VN30 feature pipeline is now complete and operational. Key capabilities:
+
+1. **Data Collection** ✅ - Tick data, prices, stock metadata stored in Supabase
+2. **Feature Engineering** ✅ - Whale footprint features for all 30 VN30 component stocks
+3. **VN30 Index Calculation** ✅ - Tick-based index calculator using market cap weighting
+4. **Feature Aggregation** ✅ - Aggregated VN30-level features from component stocks
+5. **Complete VN30 Pipeline** ✅ - `VN30FeaturePipeline` persists VN30 as `symbol="VN30"` with OHLCV + features
+
+**Next Step:** Test AI models for intraday VN30F1M derivative price prediction.
 
 ## Recent Changes Log
 
-Since `6fc4cba`:
+### Since Jan 01 2026:
+
+- **Added `VN30FeaturePipeline`** ⭐: Complete end-to-end pipeline for building VN30 features:
+  - Smart skip: Only calculates features for symbols/dates not already in DB
+  - Batch date check: Single query for all 31 symbols (30 components + VN30)
+  - Integrates `TickVN30IndexCalculator` for index OHLCV
+  - Aggregates whale footprint features via `VN30WhaleFootprintAggregator`
+  - Persists VN30 as `symbol="VN30"` to `stock_trading_feature_candles`
+  - Entry point: `python -m metan.stock.testbed.build_vn30_features`
 
 - **Added `VN30BaseMarketCapCalculator`**: Calculates and stores VN30 base market cap at 2025-12-31 03:10 UTC in `stock_common_configuration` table. Base index: 2012.
 - **Updated VN30 Index Calculators**: Both `TickVN30IndexCalculator` and `TcbsVN30IndexCalculator` now use the stored base market cap from DB instead of calculating from first candle.
-- **Added `VN30FeaturePipeline`**: Complete pipeline for building VN30 features - calculates component symbol features (with smart skip for existing dates), VN30 index candles, aggregates features, and persists to DB as `symbol="VN30"`.
 - **Added `TickVN30IndexCalculator`**: New tick-based VN30 index calculator using Supabase tick candles instead of TCBS REST. Ensures data consistency between VN30 index and whale footprint features for AI model training.
 
-Since `15a8728` → `6fc4cba`:
+### Since `15a8728` → `6fc4cba`:
 
 - **Added `info/domain/index/` module**: New `TcbsVN30IndexCalculator` calculates VN30 index using market cap weighted methodology with free-float ratios.
 - **Added `trading/domain/feature/aggregator/vn30/` module**: New `VN30WhaleFootprintAggregator` aggregates whale footprint features from 30 VN30 stocks into index-level features.
@@ -69,7 +87,7 @@ packages/stock/
 │  │  │        └─ tcbs_contract_candle_fetcher.py  # placeholder
 │  ├─ trading/
 │  │  ├─ domain/feature/
-│  │  │  ├─ aggregator/          # 🆕 VN30 feature aggregation
+│  │  │  ├─ aggregator/          # VN30 feature aggregation
 │  │  │  │  └─ vn30/
 │  │  │  │     └─ vn30_whale_footprint_aggregator.py  # aggregate 30 stocks → VN30-level features
 │  │  │  ├─ calculator/
@@ -79,18 +97,22 @@ packages/stock/
 │  │  │  │     ├─ constants.py              # thresholds, categories, sides
 │  │  │  │     ├─ features/
 │  │  │  │     │  ├─ avg_prices.py          # cumulative avg price tracking
-│  │  │  │     │  ├─ intermediate_values.py # 🆕 pc_value_5d, close_price for VN30 agg
+│  │  │  │     │  ├─ intermediate_values.py # pc_value_5d, close_price for VN30 agg
 │  │  │  │     │  ├─ ratios_5d_pc.py        # value ratios vs 5D baseline
 │  │  │  │     │  ├─ shark_sheep_ratios.py  # shark vs sheep percent features
 │  │  │  │     │  ├─ shark_values.py        # shark/sheep buy/sell values
 │  │  │  │     │  └─ urgency_spread.py      # VWAP urgency spread
 │  │  │  │     └─ whale_footprint_feature_calculator.py
 │  │  │  ├─ models.py                       # FeatureBaseCandleRow dataclass
-│  │  │  └─ persistor/intraday/
-│  │  │     └─ intraday_symbol_feature_persistor.py  # upserts to Supabase
+│  │  │  └─ persistor/
+│  │  │     ├─ intraday/
+│  │  │     │  └─ intraday_symbol_feature_persistor.py  # upserts symbol features to Supabase
+│  │  │     └─ vn30/                        # ⭐ VN30 Complete Pipeline
+│  │  │        └─ vn30_feature_pipeline.py  # end-to-end VN30 feature pipeline
 │  └─ testbed/
 │     ├─ calculate_feature.py               # quick-run feature calc
-│     └─ calculate_vn30_aggregate.py        # 🆕 VN30 aggregation pipeline
+│     ├─ calculate_vn30_aggregate.py        # VN30 aggregation (legacy)
+│     └─ build_vn30_features.py             # ⭐ VN30 complete pipeline entry point
 └─ tests/metan/stock/info/domain/stock_data_collector/test_candles_by_date.py
 ```
 
@@ -296,6 +318,7 @@ class PriceCandle(BaseModel):
 
 | Use Case | Method | Reason |
 |----------|--------|--------|
+| **Build VN30 for AI prediction** ⭐ | `VN30FeaturePipeline.run()` | Complete pipeline: index OHLCV + aggregated features |
 | **Build features (Whale, Shark...)** | `tick_candles_by_date()` | Contains `tick_actions` for trade classification |
 | **Compute baseline/MA** | `prices()` | Complete daily OHLCV with historical data |
 | **Analyze foreign flow** | `prices()` | Contains foreign buy/sell information |
@@ -405,7 +428,7 @@ index_candles = calculator.calculate()  # Returns list[VN30IndexCandle]
 
 ---
 
-### 🆕 VN30WhaleFootprintAggregator (trading.domain.feature.aggregator.vn30)
+### VN30WhaleFootprintAggregator (trading.domain.feature.aggregator.vn30)
 
 > **File:** `packages/stock/metan/stock/trading/domain/feature/aggregator/vn30/vn30_whale_footprint_aggregator.py`
 
@@ -418,18 +441,6 @@ Aggregates whale footprint features from all 30 VN30 stocks into index-level fea
 - **Percent features**: Computed from aggregated values
 - **Urgency spread**: Market Cap Weighted Average
 
-**Usage:**
-
-```python
-from metan.stock.trading.domain.feature.aggregator.vn30 import VN30WhaleFootprintAggregator
-
-aggregator = VN30WhaleFootprintAggregator(
-    start_date="2025-01-01",
-    end_date="2025-01-05",
-)
-df = aggregator.calculate()  # Returns pandas DataFrame
-```
-
 **Output Features:**
 
 - `vn30_shark{450,900}_{buy,sell}_value`: Sum of values
@@ -438,17 +449,78 @@ df = aggregator.calculate()  # Returns pandas DataFrame
 - `vn30_accum_percent_*`: Accumulated percent features
 - `vn30_shark{450,900}_urgency_spread`: Market cap weighted average
 
-**Pipeline:**
+---
+
+### ⭐ VN30FeaturePipeline (trading.domain.feature.persistor.vn30)
+
+> **File:** `packages/stock/metan/stock/trading/domain/feature/persistor/vn30/vn30_feature_pipeline.py`
+
+**The complete end-to-end pipeline for building VN30 features ready for AI prediction.**
+
+This pipeline orchestrates all steps required to produce VN30 data with OHLCV and aggregated whale footprint features:
+
+1. **Batch date check**: Single query to fetch existing dates for all 31 symbols (30 components + VN30)
+2. **Smart skip**: Only calculate features for symbols/dates not already in DB
+3. **Index calculation**: Use `TickVN30IndexCalculator` for VN30 index OHLCV
+4. **Feature aggregation**: Aggregate whale footprint features via `VN30WhaleFootprintAggregator`
+5. **Persistence**: Upsert VN30 data to `stock_trading_feature_candles` as `symbol="VN30"`
+
+**Usage:**
 
 ```python
-from metan.stock.testbed.calculate_vn30_aggregate import run_full_pipeline
+from metan.stock.trading.domain.feature.persistor.vn30 import VN30FeaturePipeline
 
-# Run full pipeline: calculate features → aggregate
-df = run_full_pipeline(
-    start_date="2025-01-01",
-    end_date="2025-01-05",
-    skip_symbol_calculation=False,  # Set True to reuse existing features
+pipeline = VN30FeaturePipeline(
+    start_date="2025-01-02",
+    end_date="2025-01-03",
+    force_recalculate=False,  # Skip existing dates
 )
+result = pipeline.run()
+
+# Result:
+# {
+#     "status": "success",
+#     "component_symbols_processed": 15,
+#     "component_symbols_skipped": 15,
+#     "index_candles": 60,
+#     "aggregated_rows": 60,
+#     "vn30_rows_written": 60
+# }
+```
+
+**Command Line Usage:**
+
+```bash
+# Run pipeline
+python -m metan.stock.testbed.build_vn30_features --start-date 2025-01-02 --end-date 2025-01-03
+
+# Force recalculate all (ignore existing data)
+python -m metan.stock.testbed.build_vn30_features --start-date 2025-01-02 --end-date 2025-01-03 --force
+```
+
+**Output Schema (stored in DB):**
+
+```python
+{
+    "symbol": "VN30",
+    "time": "2025-01-02T02:20:00+00:00",
+    "interval": 300,
+    "open": 1000,          # Index OHLCV (rounded to int)
+    "high": 1003,
+    "low": 998,
+    "close": 1001,
+    "volume": 12345678,    # Total volume of 30 stocks
+    "value": 456789,       # Total value in millions VND
+    "features": {
+        "whale_footprint": {
+            "vn30_shark450_buy_value": 48942.0,
+            "vn30_shark450_sell_value": 16111.0,
+            "vn30_percent_shark450_buy_sell": 75.23,
+            "vn30_shark450_urgency_spread": 0.17,
+            # ... other aggregated features
+        }
+    }
+}
 ```
 
 ---
@@ -583,3 +655,70 @@ Ratios range from 0.04 (BID, BCM, GVR) to 1.00 (DGC, LPB, STB). Default is 1.0 f
 - `metan-core`: logging (`Logger`), environment settings base class.
 - `metan-supabase`: provides configured `supabase` client shared across helpers and collectors.
 - `pendulum`, `pandas`, `requests`, `pydantic`: time handling, DataFrame features, HTTP, and typed models.
+
+---
+
+## 🚀 Next Steps: AI Model Testing
+
+With `VN30FeaturePipeline` complete, the next phase is to test AI models for intraday VN30F1M derivative price prediction.
+
+### Data Available for AI Training
+
+**Query VN30 features from DB:**
+
+```python
+from metan.supabase.client import supabase
+
+# Fetch VN30 feature candles
+response = (
+    supabase.table("stock_trading_feature_candles")
+    .select("*")
+    .eq("symbol", "VN30")
+    .eq("interval", 300)  # 5-minute candles
+    .gte("time", "2025-01-02T00:00:00")
+    .lte("time", "2025-01-10T23:59:59")
+    .order("time")
+    .execute()
+)
+
+# Each row contains:
+# - OHLCV: open, high, low, close, volume, value
+# - features["whale_footprint"]: aggregated whale footprint features
+```
+
+### Feature Set for Prediction
+
+| Feature Category | Features | Description |
+|-----------------|----------|-------------|
+| **Price Action** | `open`, `high`, `low`, `close` | VN30 index OHLCV |
+| **Volume** | `volume`, `value` | Total volume/value of 30 stocks |
+| **Whale Flow** | `vn30_shark{450,900}_{buy,sell}_value` | Institutional money flow |
+| **Flow Ratio** | `vn30_shark{450,900}_{buy,sell}_ratio_5d_pc` | Relative to 5-day baseline |
+| **Dominance** | `vn30_percent_shark{450,900}_buy_sell` | Shark buy % vs total shark flow |
+| **Urgency** | `vn30_shark{450,900}_urgency_spread` | VWAP-based urgency indicator |
+
+### Prediction Target
+
+**Goal:** Predict VN30F1M derivative price movement during intraday session.
+
+**Constraints:**
+- Hold position only during session (no overnight)
+- Exit when: target profit hit, stop loss hit, or end of session
+- Use 5-minute candles for prediction
+
+### Suggested AI Approach
+
+1. **Data Preparation**
+   - Build training dataset from `stock_trading_feature_candles` (symbol="VN30")
+   - Create labels: price direction (up/down), target return, etc.
+   - Split: train/validation/test by date
+
+2. **Model Selection**
+   - Start with simple models (Logistic Regression, Random Forest)
+   - Progress to sequence models (LSTM, Transformer) if needed
+   - Ensemble multiple models for robustness
+
+3. **Evaluation Metrics**
+   - Classification: Accuracy, Precision, Recall, F1
+   - Regression: MAE, RMSE, Directional Accuracy
+   - Trading: Sharpe Ratio, Max Drawdown, Win Rate
