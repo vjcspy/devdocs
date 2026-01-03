@@ -2,7 +2,7 @@
 >
 > **Branch:** master  
 > **Last Commit:** 6fc4cba  
-> **Last Updated:** Tue Dec 30 11:29:07 2025 +0700
+> **Last Updated:** Wed Jan 01 2026 +0700
 
 ## Stock Package Overview (TL;DR)
 
@@ -11,8 +11,16 @@
 - Data sources: Supabase (ticks, prices, stock metadata) and TCBS REST (intraday candles - limited).
 - Core flows: `info` (prepare market data) → `trading` (compute features) → Supabase persistence.
 - **NEW (Dec 2025)**: VN30 Index Calculator & VN30 Whale Footprint Aggregator for VN30F1M AI prediction.
+- **NEW (Jan 2026)**: `TickVN30IndexCalculator` - calculates VN30 index from tick candle data for consistency with whale footprint features.
 
 ## Recent Changes Log
+
+Since `6fc4cba`:
+
+- **Added `VN30BaseMarketCapCalculator`**: Calculates and stores VN30 base market cap at 2025-12-31 03:10 UTC in `stock_common_configuration` table. Base index: 2012.
+- **Updated VN30 Index Calculators**: Both `TickVN30IndexCalculator` and `TcbsVN30IndexCalculator` now use the stored base market cap from DB instead of calculating from first candle.
+- **Added `VN30FeaturePipeline`**: Complete pipeline for building VN30 features - calculates component symbol features (with smart skip for existing dates), VN30 index candles, aggregates features, and persists to DB as `symbol="VN30"`.
+- **Added `TickVN30IndexCalculator`**: New tick-based VN30 index calculator using Supabase tick candles instead of TCBS REST. Ensures data consistency between VN30 index and whale footprint features for AI model training.
 
 Since `15a8728` → `6fc4cba`:
 
@@ -47,7 +55,8 @@ packages/stock/
 │  │  │  ├─ index/               # 🆕 VN30 Index calculation
 │  │  │  │  ├─ constants.py      # VN30_SYMBOLS, VN30_FREE_FLOAT_RATIOS, DEFAULT_BASE_INDEX
 │  │  │  │  ├─ models.py         # VN30IndexCandle, IndexComponent
-│  │  │  │  └─ tcbs_vn30_index_calculator.py  # market cap weighted index calculator
+│  │  │  │  ├─ tcbs_vn30_index_calculator.py  # TCBS-based index calculator
+│  │  │  │  └─ tick_vn30_index_calculator.py  # 🆕 Tick-based index calculator (Supabase)
 │  │  │  ├─ price/models.py      # daily Price schema
 │  │  │  ├─ tick/models.py       # Tick & TickAction
 │  │  │  ├─ stock/models.py      # Stock metadata model (incl. total_shares)
@@ -291,7 +300,8 @@ class PriceCandle(BaseModel):
 | **Compute baseline/MA** | `prices()` | Complete daily OHLCV with historical data |
 | **Analyze foreign flow** | `prices()` | Contains foreign buy/sell information |
 | **Get stock metadata (total_shares)** | `stock()` | Required for market cap calculations |
-| **VN30 Index calculation** | `price_candles_by_date()` + `stock()` | Market cap weighted from TCBS prices |
+| **VN30 Index (consistent with features)** | `tick_candles_by_date()` + `stock()` | Use `TickVN30IndexCalculator` for consistency with whale footprint |
+| **VN30 Index (TCBS-based)** | `price_candles_by_date()` + `stock()` | Use `TcbsVN30IndexCalculator` (TCBS data) |
 | **Debug/Compare** | `price_candles_by_date()` | Compare with TCBS (limited) |
 
 ---
@@ -359,6 +369,39 @@ class VN30IndexCandle(BaseModel):
 - `VN30_SYMBOLS`: List of 30 VN30 component symbols
 - `VN30_FREE_FLOAT_RATIOS`: Free-float ratio for each symbol (default 1.0)
 - `DEFAULT_BASE_INDEX`: 2020.01
+
+---
+
+### 🆕 TickVN30IndexCalculator (info.domain.index)
+
+> **File:** `packages/stock/metan/stock/info/domain/index/tick_vn30_index_calculator.py`
+
+Calculates VN30 Index using tick candle data from Supabase instead of TCBS REST API. Uses the same data source as `VN30WhaleFootprintAggregator` to ensure consistency between index and feature calculations for AI model training.
+
+**Key Differences from TcbsVN30IndexCalculator:**
+
+| Aspect | TcbsVN30IndexCalculator | TickVN30IndexCalculator |
+|--------|------------------------|------------------------|
+| Data Source | `price_candles_by_date()` → TCBS REST | `tick_candles_by_date()` → Supabase |
+| Base Index | 2020.01 | 1000 |
+| Consistency | May differ from features | Same source as whale footprint |
+
+**Usage:**
+
+```python
+from metan.stock.info.domain.index import TickVN30IndexCalculator
+
+calculator = TickVN30IndexCalculator(
+    start_date="2025-01-01",
+    end_date="2025-01-05",
+    use_free_float=True,  # Apply free-float ratios
+)
+index_candles = calculator.calculate()  # Returns list[VN30IndexCandle]
+```
+
+**Constants:**
+
+- `TICK_DEFAULT_BASE_INDEX`: 1000
 
 ---
 
