@@ -58,12 +58,14 @@ Hiện tại đã có các features sau
 
 Tạm thời sẽ dùng 2 threshold 450 và 900 để so sánh value xem có phải là shark hay không
 
-- `sharkXXX_buy_value`,  `sharkXXX_sell_value` mua bán của sharkXXX trong **`*candle`*** (**IMPLEMENTED**)
+#### Implemented
+
+- `sharkXXX_buy_value`,  `sharkXXX_sell_value` mua bán của sharkXXX trong **`*candle`*** 
   
-    Để theo value như này có vẻ không ổn, có thể nomalize với giá trị giao dịch trung bình 5 ngày. (**IMPLEMENTED**)
+    Để theo value như này có vẻ không ổn, có thể nomalize với giá trị giao dịch trung bình 5 ngày.
     `sharkXXX_buy_ratio_5d_pc`: so sánh tỷ lệ với trung bình 5 ngày
 
-- `sharkXXX_buy_avg_price`, `sharkXXX_sell_avg_price` Mức giá giao dịch BÌNH QUÂN của các lệnh MUA/BÁN lớn. (**IMPLEMENTED**)
+- `sharkXXX_buy_avg_price`, `sharkXXX_sell_avg_price` Mức giá giao dịch BÌNH QUÂN của các lệnh MUA/BÁN lớn.
   
     Cho một cái nhìn để biết được hành vi của shark là đang mua/bán giá thấp hay là mua giá cao.
 
@@ -71,11 +73,7 @@ Tạm thời sẽ dùng 2 threshold 450 và 900 để so sánh value xem có ph�
 
     **NOTE**: Hiện tại đang implementing là giá mua trung bình accumulate từ đầu ngày tới thời điểm của nến đang xem.
 
-- ~~`avg_sharkXXX_buy_value_5d`, `avg_sharkXXX_sell_value_5d`~~
-
-    ~~It has not been implemented yet. Because I haven't found it's important right now~~
-
-- `percent_sharkXXX_buy_sell`, `percent_sheepXXX_buy_sell`, `percent_buy_sharkXXX_sheep`, `percent_sell_sharkXXX_sheep` (**IMPLEMENTED**)
+- `percent_sharkXXX_buy_sell`, `percent_sheepXXX_buy_sell`, `percent_buy_sharkXXX_sheep`, `percent_sell_sharkXXX_sheep`
 
     Các chỉ số này được tính dưới dạng phần trăm (%) và có 2 phiên bản:
     1. Tính trong candle hiện tại (không có prefix).
@@ -87,6 +85,14 @@ Tạm thời sẽ dùng 2 threshold 450 và 900 để so sánh value xem có ph�
   - `percent_buy_sharkXXX_sheep` = `Shark Buy / (Shark Buy + Sheep Buy)`: Tỷ trọng Shark đóng góp trong tổng lực Mua.
   - `percent_sell_sharkXXX_sheep` = `Shark Sell / (Shark Sell + Sheep Sell)`: Tỷ trọng Shark đóng góp trong tổng lực Bán.
   
-- **`shark_urgency_spread = (avg_price_shark_buys - avg_price_shark_sells) / vwap`** (**IMPLEMENTED**)
+- **`shark_urgency_spread = (avg_price_shark_buys - avg_price_shark_sells) / vwap`** 
 
   - Chuẩn hóa bằng VWAP giúp so sánh được giữa các cổ phiếu. Spread dương lớn cho thấy phe mua lớn đang rất "hung hăng", sẵn sàng mua đuổi giá cao.
+
+#### TODO
+
+- ~~`avg_sharkXXX_buy_value_5d`, `avg_sharkXXX_sell_value_5d`~~
+
+  ~~It has not been implemented yet. Because I haven't found it's important right now~~
+
+- so sánh với volume trung bình trượt 5 ngày tại timepoint đó, (tức là cộng dồn từ đầu phiên cho tới timepoint đó và chia trung bình trượt của 5 ngày) -> từ đó xem được khối lượng giao dịch đột biến hay không

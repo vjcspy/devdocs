@@ -355,6 +355,7 @@ Extend micro-manager's script execution storage to support **trigger-initiated s
 ```
 
 **Key Takeaways:**
+
 - ✅ Requires `scheduleId` in URL
 - ✅ Requires `planned` timestamp in body
 - ✅ Full validation of steps against script version
@@ -420,6 +421,7 @@ Extend micro-manager's script execution storage to support **trigger-initiated s
 ```
 
 **Key Takeaways:**
+
 - ❌ Execution steps are NOT persisted to database
 - ❌ No validation of steps against script version
 - ❌ Only report steps are processed (for side effects)
@@ -582,6 +584,7 @@ Extend micro-manager's script execution storage to support **trigger-initiated s
 ```
 
 **Key Takeaways:**
+
 - ✅ Full execution history like scheduled scripts
 - ✅ Traceability from incoming event to execution
 - ✅ Same validation & data structure as scheduled
@@ -635,6 +638,7 @@ CREATE TABLE `script_step_execution` (
 ```
 
 **⚠️ Note về `script_step_execution.executed_at`:**
+
 - ✅ Đã có sẵn timestamp cho từng node/step execution
 - ✅ Precision DATETIME(3) = milliseconds
 - ✅ Requirement "time of execution of the node" đã được fulfill
@@ -646,12 +650,14 @@ CREATE TABLE `script_step_execution` (
 #### Make Columns Nullable + Add triggering_event_id
 
 **Pros:**
+
 - ✅ Clean semantics: NULL = trigger-based, NOT NULL = scheduled
 - ✅ Easy filtering: `WHERE schedule_id IS NULL` vs `WHERE schedule_id IS NOT NULL`
 - ✅ No dummy/sentinel data
 - ✅ Natural database design
 
 **Cons:**
+
 - ⚠️ Schema migration required (ALTER TABLE locks)
 - ⚠️ Need to drop and recreate FK constraint
 - ⚠️ Existing queries may need review (though most already filter by robot_id)
@@ -752,6 +758,7 @@ REVOKE SELECT ON `tinybots`.`outgoing_event` FROM 'micro-manager-rw'@'192.168.0.
 ### Repository Layer Changes
 
 **Pros:**
+
 - ✅ Zero risk to existing scheduled execution flow
 - ✅ No migration of existing table
 - ✅ Can add different columns specific to triggered executions
@@ -759,6 +766,7 @@ REVOKE SELECT ON `tinybots`.`outgoing_event` FROM 'micro-manager-rw'@'192.168.0.
 - ✅ Gradual rollout possible (keep both systems running)
 
 **Cons:**
+
 - ⚠️ Need to query two tables for "all executions"
 - ⚠️ More complex queries with UNION
 - ⚠️ Duplicate some columns (script_reference_id, script_version_id)
@@ -839,10 +847,12 @@ ORDER BY created_at DESC;
 #### **Option 3: Sentinel Value (Quick Fix - NOT RECOMMENDED)**
 
 **Pros:**
+
 - ✅ No schema change
 - ✅ Fastest to implement
 
 **Cons:**
+
 - ❌ Confusing semantics (schedule_id=0 means "no schedule")
 - ❌ Need dummy record in task_schedule table
 - ❌ Queries become complex (`WHERE schedule_id != 0`)
@@ -873,6 +883,7 @@ ALTER TABLE script_execution
 #### **Recommendation: Option 1 (Nullable Columns)**
 
 **Rationale:**
+
 - ✅ Most natural database design
 - ✅ Same table = simpler queries, no UNION needed
 - ✅ Clear semantics (NULL vs NOT NULL)
@@ -1230,6 +1241,7 @@ private validateExecutionSteps = async (
 ```
 
 **Key Design Points:**
+
 - ✅ Reuse `validateExecutionSteps()` method
 - ✅ Reuse `addScriptExecutionSteps()` method
 - ✅ Different creation: `addScriptExecution()` vs `addTriggeredScriptExecution()`
@@ -1408,6 +1420,7 @@ private validateExecutionSteps = async (
 ```
 
 **Key Design Decision:**
+
 - ✅ Reuse `validateExecutionSteps()` (same logic for scheduled & triggered)
 - ✅ Reuse `addScriptExecutionSteps()` (same step structure)
 - ✅ Different creation methods (different SQL, different params)
@@ -1908,6 +1921,7 @@ export default () => {
 ### **Implementation Details:**
 
 **Files Modified/Created:**
+
 - ✅ `src/controllers/ScriptTriggeredExecutionController.ts` - NEW controller
 - ✅ `src/services/ScriptExecutionService.ts` - Added `saveTriggeredExecution()` method
 - ✅ `src/repository/ScriptExecutionRepository.ts` - Added 4 new methods including idempotency check
@@ -1920,6 +1934,7 @@ export default () => {
 - ✅ `tiny-specs/specs/local/components/micro-manager/v6/schemas.yaml` - API schemas
 
 **Key Implementation Decisions:**
+
 - ✅ Used `PUT` instead of `POST` (better for idempotency)
 - ✅ Returns `204 No Content` instead of `201 Created` (standard for idempotent operations)
 - ✅ Implemented idempotency check via `getTriggeredExecutionId()` - **NOT in original plan but critical**
@@ -1928,6 +1943,7 @@ export default () => {
 ✅ **All 7 phases completed** - Feature ready for code review and deployment
 
 **Test Files Created:**
+
 - ✅ `test/services/ScriptExecutionService.UT.spec.ts` - 8 unit test cases
 - ✅ `test/IT/repositoryIT/ScriptExecutionRepository.triggered.IT.spec.ts` - 15 integration test cases
 - ✅ `test/controllers/ScriptTriggeredExecutionController.IT.spec.ts` - 13 integration test cases
@@ -1941,6 +1957,7 @@ export default () => {
 **File**: `typ-e/src/main/resources/db/migration/V98__add_triggered_script_execution_support.sql`
 
 **Changes Applied:**
+
 - ✅ Added `triggering_event_id` column (BIGINT UNSIGNED NULL, indexed)
 - ✅ Made `schedule_id` and `planned` nullable
 - ✅ Added FK constraint to `event_trigger` table
@@ -1950,19 +1967,21 @@ export default () => {
 **Tasks:**
 
 1. [x] **Create Migration Script V98** ✅ DONEtion - **CRITICAL - NOT DONE**
+
 - ⚠️ **Phase 7**: End-to-End Testing - Tests not written yet
 
 ---
 
 ### Phase 1: Database Schema Migration ✅ CRITICAL - 8__add_triggered_script_execution_support.sql` ✅ DONE
-   - Add `triggering_event_id` column (nullable, references `event_trigger.id`) ✅
-   - Make `schedule_id` and `planned` nullable ✅
-   - Drop/recreate `fk_scheduled_script_schedule_id` FK constraint ✅  
-   - Add check constraint (either scheduled OR triggered) ✅
-   - Add FK to `event_trigger` table ✅
-   - Grant SELECT permissions on `event_trigger` and `outgoing_event` to micro-manager ✅
 
-2. [x] **Test Migration on Dev Database** ✅ READY
+- Add `triggering_event_id` column (nullable, references `event_trigger.id`) ✅
+- Make `schedule_id` and `planned` nullable ✅
+- Drop/recreate `fk_scheduled_script_schedule_id` FK constraint ✅  
+- Add check constraint (either scheduled OR triggered) ✅
+- Add FK to `event_trigger` table ✅
+- Grant SELECT permissions on `event_trigger` and `outgoing_event` to micro-manager ✅
+
+1. [x] **Test Migration on Dev Database** ✅ READY
    - Migration script ready to run
    - Run migration locally or in dev
    - Verify existing scheduled executions remain queryable
@@ -1971,7 +1990,7 @@ export default () => {
    - Verify check constraint prevents both being NULL or both being set
    - Verify indexes work efficiently
 
-3. [x] **Create Rollback Script** ✅ DONE (included in migration comments
+2. [x] **Create Rollback Script** ✅ DONE (included in migration comments
    - Run migration locally
    - Verify existing scheduled executions remain queryable
    - Test INSERT with `triggering_event_id` (scheduled fields NULL)
@@ -1987,6 +2006,7 @@ export default () => {
    - Restore NOT NULL on `schedule_id` and `planned`
 
 **Acceptance Criteria:**
+
 - ✅ Migration runs without errors on dev database
 - ✅ Can insert triggered execution with triggering_event_id
 - ✅ Can insert scheduled execution (existing behavior)
@@ -2005,6 +2025,7 @@ export default () => {
 **File**: `micro-manager/src/repository/ScriptExecutionRepository.ts`
 
 **Methods Implemented:**
+
 1. ✅ `addTriggeredScriptExecution()` - Creates execution record with `triggeringEventId`
    - SQL: `INSERT INTO script_execution (script_reference_id, script_version_id, schedule_id, planned, triggering_event_id) VALUES(?, ?, NULL, NULL, ?)`
    - Validates script reference belongs to robot
@@ -2045,6 +2066,7 @@ x] **Integration Tests** - ✅ **DONE**
    - Test error handling for invalid inputs
 
 **Acceptance Criteria:**
+
 - ✅ Tests pass with comprehensive coverage - **15 test cases implemented**
 - ✅ Existing repository tests still pass (to be verified in CI
 - ✅ JOINs to `event_trigger` and `outgoing_event` work correctly
@@ -2062,6 +2084,7 @@ x] **Integration Tests** - ✅ **DONE**
 **File**: `micro-manager/src/services/ScriptExecutionService.ts`
 
 **Method**: `saveTriggeredExecution()`
+
 ```typescript
 public async saveTriggeredExecution ({ 
   robotId, scriptReferenceId, scriptVersionId, 
@@ -2076,6 +2099,7 @@ public async saveTriggeredExecution ({
 ```
 
 **Flow:**
+
 1. ✅ Check if execution already exists (idempotency via `getTriggeredExecutionId()`)
 2. ✅ Validate steps using `validateExecutionSteps()` (reused from scheduled flow)
 3. ✅ Create execution if doesn't exist via `addTriggeredScriptExecution()`
@@ -2103,6 +2127,7 @@ public async saveTriggeredExecution ({
    - **8 unit test cases**
 
 **Acceptance Criteria:**
+
 - ✅ Method validates steps before creating execution
 - ✅ Method creates execution with triggeringEventId
 - ✅ Method saves execution steps using shared logic
@@ -2122,6 +2147,7 @@ public async saveTriggeredExecution ({
 **File**: `micro-manager/src/schemas/body/ScriptExecution.ts`
 
 **DTOs Created:**
+
 ```typescript
 export class PostTriggeredScriptExecutionDTO {
   @IsInt()
@@ -2143,11 +2169,13 @@ export class TriggeredScriptExecutionResponse {
 **Note**: `triggeringEventId` is in URL path, not body (same pattern as `scheduleId`)
 
 **File**: `micro-manager/src/middleware/validation/body.ts`
+
 - Added `postTriggeredScriptExecution` middleware
 - Validates DTO using class-validator
 - Validates step data matches step type
 
 **File**: `micro-manager/src/schemas/params/scriptReferenceIdTriggeringEventIdSchema.ts` (NEW)
+
 ```typescript
 const scriptReferenceIdTriggeringEventIdSchema = Joi.object({
   scriptReferenceId: Joi.number().integer().min(1).required(),
@@ -2170,6 +2198,7 @@ const scriptReferenceIdTriggeringEventIdSchema = Joi.object({
    - All validation scenarios covered
 
 **Acceptance Criteria:**
+
 - ✅ `PostTriggeredScriptExecutionDTO` validates correctly
 - ✅ `triggeringEventId` must be positive integer (validated in param schema)
 - ✅ `scriptExecutionSteps` must be non-empty array
@@ -2184,6 +2213,7 @@ const scriptReferenceIdTriggeringEventIdSchema = Joi.object({
 **Implementation Summary:**
 
 **File**: `micro-manager/src/controllers/ScriptTriggeredExecutionController.ts` (NEW)
+
 ```typescript
 export class ScriptTriggeredExecutionController {
   public putTriggeredExecution = async (
@@ -2207,6 +2237,7 @@ export class ScriptTriggeredExecutionController {
 ```
 
 **File**: `micro-manager/src/routes/routes.ts`
+
 ```typescript
 app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:triggeringEventId',
   joiValidator.headers(kongHeaderSchema),
@@ -2217,6 +2248,7 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 ```
 
 **File**: `micro-manager/src/buildContainer.ts`
+
 - Registered `scriptTriggeredExecutionController` in DI container
 
 **Tasks:**
@@ -2258,6 +2290,7 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
    - **13 integration test cases**
 
 **✅ Integration tests pass - **13 test cases implemented**
+
 - ✅ Existing endpoints unaffected (to be verified in CI
 - ✅ Kong authentication enforced
 - ✅ Robot access validated
@@ -2274,6 +2307,7 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 **Implementation Summary:**
 
 **File**: `tiny-specs/specs/local/components/micro-manager/v6/schemas.yaml` (NEW)
+
 - Defined `PostTriggeredScriptExecutionRequest` schema
 - Defined `ExecutionStep` schema with all step types
 - Defined step data schemas: `ClosedQuestionData`, `MultipleChoiceData`, `ReportData`
@@ -2281,6 +2315,7 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 - Added parameters: `ScriptReferenceIdParam`, `TriggeringEventIdParam`
 
 **File**: `tiny-specs/specs/local/paths/micro-manager/v6/paths.yaml` (NEW)
+
 - Defined `PUT /v6/scripts/robot/scripts/{scriptReferenceId}/executions/triggered/{triggeringEventId}`
 - Documented all responses: 204, 400, 403, 404
 - Added description explaining idempotency
@@ -2304,6 +2339,7 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 3. [ ] **Update micro-manager Docs** - ⚠️ **TODO**
    - File: `micro-manager/docs/micro-manager.yaml`
    - Sync with tiny-specs in deployed environment)
+
 - ✅ All fields documented
 - ✅ Examples are realistic
 - ⚠️ Micro-manager docs synced - **Optional for deployment
@@ -2323,23 +2359,25 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 
 **Tasks:**
  ✅
-   - Test with actual MySQL database (not mocks) ✅
-   - Test idempotency (if applicable) ✅
-   - Test concurrent requests - covered in integration tests ✅
-   - **13 controller integration test cases**
 
-2. [x] **Regression Testing** ✅ **READY**
+- Test with actual MySQL database (not mocks) ✅
+- Test idempotency (if applicable) ✅
+- Test concurrent requests - covered in integration tests ✅
+- **13 controller integration test cases**
+
+1. [x] **Regression Testing** ✅ **READY**
    - Run full test suite for scheduled executions ✅ (to be run in CI)
    - Verify no regressions in existing flows ✅ (code unchanged)
    - Check performance benchmarks - to be done in dev/staging
 
-3. [ ] **Update Documentation** - ⚠️ **Optional for deploymentarks
+2. [ ] **Update Documentation** - ⚠️ **Optional for deploymentarks
 
 3. [ ] **Update Documentation**
    - File: `devdocs/tinybots/micro-manager/OVERVIEW.md`
    - Document triggered execution flow
    - Update architecture diagrams
    - Add troublesh - **36 comprehensive test cases implemented**
+
 - ✅ All existing tests still pass - to be verified in CI
 - ⚠️ Performance acceptable (<100ms overhead) - to be measured in dev/staging
 - ⚠️ Documentation updated - optional for deployment
@@ -2361,12 +2399,14 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 ### 🎯 Implementation Scope
 
 **Database Changes:**
+
 - Add `triggering_event_id` column (references `event_trigger.id`)
 - Make `schedule_id` and `planned` nullable
 - Add check constraint (either scheduled OR triggered)
 - Grant SELECT on `event_trigger` and `outgoing_event` tables
 
 **Code Changes:**
+
 - New repository method: `addTriggeredScriptExecution()`
 - New service method: `saveTriggeredExecution()`
 - New controller: `ScriptTriggeredExecutionController`
@@ -2374,6 +2414,7 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 - New route: `POST /v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered`
 
 **No Changes Needed:**
+
 - Existing scheduled execution flow (100% unchanged)
 - Step validation logic (reused as-is)
 - Step storage logic (reused as-is)
@@ -2382,12 +2423,14 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 ### 📈 Success Metrics
 
 **Technical:**
+
 - Migration completes successfully
 - API latency <100ms (p95)
 - Test coverage >90%
 - Zero regression in scheduled flow
 
 **Business:**
+
 - 100% triggered executions stored
 - Full traceability: trigger → execution → steps
 - Query performance acceptable for analytics
@@ -2397,12 +2440,14 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 ## 📚 References
 
 ### Related Documentation
+
 - [Megazord Events OVERVIEW](devdocs/tinybots/megazord-events/OVERVIEW.md)
 - [M-O-Triggers OVERVIEW](devdocs/tinybots/m-o-triggers/OVERVIEW.md)
 - [Micro-Manager OVERVIEW](devdocs/tinybots/micro-manager/OVERVIEW.md)
 - [TinyBots Platform OVERVIEW](devdocs/tinybots/OVERVIEW.md)
 
 ### Related Tables
+
 - `event_trigger` - Stores trigger records created by m-o-triggers
 - `outgoing_event` - Links triggers to source events (has `source_event_id`)
 - `incoming_event` - Original events from sensors/external sources
@@ -2418,10 +2463,12 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 **Branch**: `task/PROD-724-TASK1-create-endpoint`
 
 **Commits**:
+
 1. `934eec5` - feat: add support for triggered script execution with validation and persistence
 2. `a6179cb` - feat: implement idempotent triggered script execution with PUT, schema & service updates
 
 **Files Changed** (8 modified/created):
+
 - ✅ [src/controllers/ScriptTriggeredExecutionController.ts](micro-manager/src/controllers/ScriptTriggeredExecutionController.ts) - NEW
 - ✅ [src/services/ScriptExecutionService.ts](micro-manager/src/services/ScriptExecutionService.ts) - Added `saveTriggeredExecution()` with idempotency
 - ✅ [src/repository/ScriptExecutionRepository.ts](micro-manager/src/repository/ScriptExecutionRepository.ts) - Added 4 new methods
@@ -2432,12 +2479,14 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 - ✅ [src/buildContainer.ts](micro-manager/src/buildContainer.ts) - Registered controller
 
 **API Specification** (tiny-specs):
+
 - ✅ [specs/local/paths/micro-manager/v6/paths.yaml](tiny-specs/specs/local/paths/micro-manager/v6/paths.yaml) - Endpoint definition
 - ✅ [specs/local/components/micro-manager/v6/schemas.yaml](tiny-specs/specs/local/components/micro-manager/v6/schemas.yaml) - Request/response schemas
 
 ### ⚠️ Critical Blockers
 
 **Database Migration NOT Done**:
+
 - The code assumes `script_execution` table has:
   - `triggering_event_id BIGINT UNSIGNED NULL` column
   - `schedule_id` and `planned` are nullable
@@ -2445,6 +2494,7 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 - ❌ **This MUST be done before deploying to any environment**
 
 **Tests NOT Implemented**:
+
 - No unit tests for new service methods
 - No integration tests for new repository methods
 - No controller/E2E tests
@@ -2463,12 +2513,14 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 ### 📋 Remaining Work
 
 **Must Do Before Production**:
+
 1. ❌ **Create database migration** `typ-e/src/main/resources/db/migration/V97__add_triggered_script_execution_support.sql`
 2. ❌ **Write comprehensive tests** (unit, integration, E2E)
 3. ❌ **Run migration on dev/staging** and verify
 4. ❌ **Performance testing** with realistic load
 
 **Should Do**:
+
 - Update `devdocs/tinybots/micro-manager/OVERVIEW.md`
 - Add architecture diagrams
 - Add troubleshooting guide
@@ -2477,6 +2529,7 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 ### 🎉 Achievements
 
 **Excellent Design Choices**:
+
 - ✅ Used PUT + 204 for idempotency (better than planned POST + 201)
 - ✅ Implemented idempotency check not in original plan
 - ✅ 100% code reuse for step validation and storage
@@ -2484,6 +2537,7 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 - ✅ Comprehensive OpenAPI documentation
 
 **Code Quality**:
+
 - ✅ Clean separation of concerns (controller → service → repository)
 - ✅ Proper dependency injection
 - ✅ Consistent error handling patterns
@@ -2497,32 +2551,3 @@ app.put('/v6/scripts/robot/scripts/:scriptReferenceId/executions/triggered/:trig
 4. **Test Coverage**: Should write tests alongside implementation, not after
 
 ---
-
-## 🚦 Next Steps
-
-**For Database Migration** (typ-e repository):
-```bash
-cd /Users/kai/work/tinybots/typ-e
-# Create migration file
-cat > src/main/resources/db/migration/V97__add_triggered_script_execution_support.sql << 'EOF'
--- See plan document for full SQL
-ALTER TABLE script_execution ADD COLUMN triggering_event_id BIGINT UNSIGNED NULL;
--- ... etc
-EOF
-```
-
-**For Testing** (micro-manager repository):
-```bash
-cd /Users/kai/work/tinybots/micro-manager
-# Create test files
-touch test/IT/repositoryIT/ScriptExecutionRepository.triggered.IT.spec.ts
-touch test/services/ScriptExecutionService.triggered.UT.spec.ts
-touch test/controllers/ScriptTriggeredExecutionController.IT.spec.ts
-```
-
-**For Documentation**:
-```bash
-# Update OVERVIEW
-vim devdocs/tinybots/micro-manager/OVERVIEW.md
-# Add section: "Triggered Script Executions"
-```

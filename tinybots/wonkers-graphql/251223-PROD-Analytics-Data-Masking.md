@@ -28,10 +28,10 @@ Remove these information from the reports
 ## 📝 Updated Requirements (from Stakeholder)
 
 1. **Remove fields completely** (not mask) - breaking change accepted
-2. **For address fields:** 
-   - Add permission check: `TAAS_ORDER_ADDRESS_READ_ALL`
-   - If no permission → throw error (standard BaseResolver pattern)
-   - Keep address fields in schema for users with permission
+2. **For address and healthcare fields:** 
+   - Add permission checks: `TAAS_ORDER_HEALTHCARE_INFO_READ_ALL` and `TAAS_ORDER_ADDRESS_READ_ALL`
+   - If missing either permission → throw error (standard BaseResolver pattern)
+   - Keep address fields in schema for users with both permissions
 3. **Healthcare info fields always removed:**
    - `discipline`
    - `healthCareDemand`
@@ -74,8 +74,10 @@ Implement data masking for personal health information (PHI) in wonkers-graphql 
 #### Address Fields Requiring Permission:
 - `deliveryAddress` (Address type)
 - `pickupAddress` (Address type)
-- **Permission:** `Permission.TAAS_ORDER_ADDRESS_READ_ALL`
-- **Behavior:** Throw error if user lacks permission (using BaseResolver.Wrap pattern)
+- **Permissions Required:** 
+  - `Permission.TAAS_ORDER_HEALTHCARE_INFO_READ_ALL`
+  - `Permission.TAAS_ORDER_ADDRESS_READ_ALL`
+- **Behavior:** Throw error if user lacks either permission (using BaseResolver.Wrap pattern)
 
 #### Affected Queries & Types:
 1. **Legacy Schema:**
@@ -135,7 +137,10 @@ wonkers-graphql/
     salesOrders: BaseResolver.Wrap(
       {
         selectUserId: (ctx) => ctx.dashboardUser?.id,
-        permissions: [Permission.TAAS_ORDER_ADDRESS_READ_ALL]
+        permissions: [
+          Permission.TAAS_ORDER_HEALTHCARE_INFO_READ_ALL,
+          Permission.TAAS_ORDER_ADDRESS_READ_ALL
+        ]
       },
       async (_, args, { dataSources }) => {
         return dataSources.taasOrderApi.getRawTaasOrders({
@@ -145,7 +150,7 @@ wonkers-graphql/
       }
     )
     ```
-  - **Outcome:** Throws error if user lacks TAAS_ORDER_ADDRESS_READ_ALL permission
+  - **Outcome:** Throws error if user lacks either TAAS_ORDER_HEALTHCARE_INFO_READ_ALL or TAAS_ORDER_ADDRESS_READ_ALL permission
 
 #### Step 3.3: Add Permission Check to Organisation.salesOrders
 - [x] Wrap resolver with `BaseResolver.Wrap` in `src/resolvers/QueryResolver.ts`
@@ -177,7 +182,9 @@ wonkers-graphql/
   - **File:** `test/SalesOrderPermissionTest.ts`
     - Tests permission check for `RawData.salesOrders`
     - Tests permission check for `Organisation.salesOrders`
+    - Tests FORBIDDEN error when user lacks `TAAS_ORDER_HEALTHCARE_INFO_READ_ALL`
     - Tests FORBIDDEN error when user lacks `TAAS_ORDER_ADDRESS_READ_ALL`
+    - Tests FORBIDDEN error when user lacks both permissions
     - Tests that PHI fields (discipline, healthCareDemand, returnReason, healthcareProfessional) cannot be queried
   - **File:** `test/InUseTessaReportPhiRemovalTest.ts`
     - Tests that discipline and healthCareDemand are removed from InUseTessaReportRow
@@ -186,14 +193,14 @@ wonkers-graphql/
 
 - [ ] Manual testing of affected queries
   - **Test Cases:**
-    1. **Query `rawData.salesOrders` without permission:**
+    1. **Query `rawData.salesOrders` without permissions:**
        - Should throw GraphQLError with FORBIDDEN code
-       - Verify error message indicates missing permission
-    2. **Query `rawData.salesOrders` with permission:**
+       - Verify error message indicates missing permissions (either TAAS_ORDER_HEALTHCARE_INFO_READ_ALL or TAAS_ORDER_ADDRESS_READ_ALL)
+    2. **Query `rawData.salesOrders` with both permissions:**
        - Should return sales orders successfully
        - Verify no `discipline`, `healthCareDemand`, `returnReason`, `healthcareProfessional` fields in response
        - Verify `deliveryAddress` and `pickupAddress` are present
-    3. **Query `organisation.salesOrders` with/without permission:**
+    3. **Query `organisation.salesOrders` with/without both permissions:**
        - Same behavior as RawData.salesOrders
     4. **Query `reports.inUseTessaReport`:**
        - Verify no `discipline` and `healthCareDemand` fields in response
@@ -256,7 +263,7 @@ wonkers-graphql/
 
 - [x] **Permission Enforcement Approach:** Use existing BaseResolver.Wrap pattern
   - **Decision:** Keep current permission error behavior (throw GraphQLError)
-  - **Behavior:** Users without `TAAS_ORDER_ADDRESS_READ_ALL` cannot query salesOrders
+  - **Behavior:** Users without both `TAAS_ORDER_HEALTHCARE_INFO_READ_ALL` and `TAAS_ORDER_ADDRESS_READ_ALL` cannot query salesOrders
 
 - [x] **Scope Confirmed:** Remove PHI from all queries that expose SalesOrder or InUseTessaReport
   - **Queries affected:**
@@ -269,7 +276,7 @@ wonkers-graphql/
 
 - [ ] **Update API Documentation:** Notify consumers about removed fields
   - Fields removed: `discipline`, `healthCareDemand`, `returnReason`, `healthcareProfessional`
-  - Permission required for `salesOrders` queries: `TAAS_ORDER_ADDRESS_READ_ALL`
+  - Permissions required for `salesOrders` queries: `TAAS_ORDER_HEALTHCARE_INFO_READ_ALL` and `TAAS_ORDER_ADDRESS_READ_ALL`
 
 - [ ] **Monitor Permission Errors:** Track users hitting permission errors
   - Review logs for `FORBIDDEN` errors on salesOrders queries
