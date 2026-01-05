@@ -1,683 +1,517 @@
-# TinyBots DevTools - Centralized Integration Test Infrastructure
+# DevTools - Centralized Development Infrastructure
 
-## AI Agent Context Document
+> **Purpose:** Centralized Docker Compose infrastructure for local development and integration testing across TinyBots repositories
+> **Last Updated:** 2026-01-05
 
-**Version**: 1.0  
-**Last Updated**: 2025-12-31  
-**Purpose**: Enable AI agents to understand, maintain, and extend the devtools centralized infrastructure
+## DevTools TL;DR
+
+- **Centralized Docker Infrastructure:** Single `docker-compose.yaml` defining all databases, migration runners, and shared services (Checkpoint, Prowl, LocalStack, Wonkers, etc.) to eliminate duplicated CI setups across repos.
+- **Just Command Orchestration:** Repository-specific `just` commands in `justfiles/` provide one-liner commands to start dependencies, run integration tests, or launch dev mode for any repo.
+- **Seed Data Management:** NPM scripts (`seed`, `seed:clean`) populate MySQL databases with realistic test data for local development and testing workflows.
+- **Speed & Safety:** Only resets stateful containers (databases) between test runs; reuses running services for faster iteration (~1-2min vs full rebuild ~5-10min).
 
 ---
 
-## 1. Executive Summary
+## Repo Purpose & Bounded Context
 
-### What is DevTools?
+DevTools provides the **local development and integration testing infrastructure** for the entire TinyBots monorepo. It replaces the decentralized approach where each repository managed its own `ci/docker-compose.yml` with a **single source of truth** for:
 
-The `devtools/` directory provides a **centralized Docker Compose infrastructure** for running integration tests across multiple TinyBots repositories. It replaces the decentralized approach where each repository managed its own complete Docker setup in its `ci/` folder.
+- Database containers (typ-e-db, wonkers-db, atlas-intelligence-db)
+- Migration runners (typ-e, wonkers-db, intelligence)
+- Shared backend services (checkpoint, prowl, wonkers, wonkers-account, kryten, etc.)
+- AWS mocks (LocalStack for SQS)
+- Email testing (mailcatcher)
 
-### Why It Exists
+This eliminates configuration drift, speeds up test cycles, and provides consistent development environments across all repositories.
 
-**Problem with Default CI Approach:**
+---
+
+## Key Feature 1: Just Commands for Rapid Development
+
+### Overview
+
+The `Justfile` orchestrates Docker Compose operations through repository-specific command files in `justfiles/`. Each repo gets dedicated commands to:
+
+1. **Start dependencies** (`start-<repo>`) - Launch all required services for development
+2. **Run integration tests** (`test-<repo>`) - Reset databases and execute test suites
+3. **View logs** (`log-<repo>`) - Monitor service outputs
+4. **Dev/Debug modes** (`dev-<repo>`, `debug-<repo>`) - Interactive development with hot-reload
+
+### Available Commands
+
+**Database Management:**
 ```bash
-# Each repo's ci/test.sh has a trap that destroys EVERYTHING:
-trap '{
-    docker-compose -f ci/docker-compose.yml down     # Kills ALL containers
-    docker volume rm $(docker volume ls -q)          # Removes ALL volumes
-}' EXIT
+just start-db  # Start both MySQL databases and run migrations
 ```
 
-**DevTools Solution:**
+**Per-Repository Commands (Pattern):**
 ```bash
-# Only removes stateful containers (databases), keeps services running:
-{{compose}} rm -sf mysql-typ-e-db mysql-wonkers-db   # Only DBs
-{{compose}} up -d <required-services>                 # Starts what's needed
-{{compose}} run --rm --use-aliases <repo>            # Runs tests
+just start-<repo>    # Start all dependencies for local dev
+just test-<repo>     # Run integration tests (resets DBs)
+just log-<repo>      # View logs for all services
+just dev-<repo>      # Start in dev mode with hot-reload
+just debug-<repo>    # Start with Node debugger attached
 ```
 
-### Key Benefits
+**Available Repos:**
+- `atlas`
+- `azi-3-status-check-jobs`
+- `m-o-triggers`
+- `megazord-events`
+- `micro-manager`
+- `wonkers-ecd`
+- `wonkers-graphql`
 
-| Aspect | Default CI | DevTools |
-|--------|-----------|----------|
-| Container Management | Destroys ALL containers | Only removes stateful (DB) containers |
-| Volume Management | Removes ALL volumes | Docker manages automatically |
-| Service Reuse | Rebuilds everything each run | Reuses running services |
-| Test Speed | Slow (full rebuild ~5-10min) | Fast (selective restart ~1-2min) |
-| Configuration | Duplicated per repo | Single source of truth |
+### Example Usage
 
----
-
-## 2. Architecture
-
-### 2.1 Directory Structure
-
-```
-tinybots/
-├── devtools/                               # Centralized infrastructure
-│   ├── docker-compose.yaml                 # ALL service definitions
-│   ├── Justfile                           # Main orchestration (imports)
-│   ├── justfiles/                         # Per-repo command files
-│   │   ├── database.just
-│   │   ├── wonkers-graphql.just
-│   │   ├── megazord-events.just
-│   │   ├── m-o-triggers.just
-│   │   ├── wonkers-ecd.just
-│   │   └── azi-3-status-check-jobs.just
-│   └── localstack/                        # LocalStack init scripts
-│
-├── <repo>/ci/                             # Legacy (per-repo) CI setup
-│   ├── docker-compose.yml                 # Repo-specific containers
-│   ├── test.sh                            # Test runner with TRAP cleanup
-│   ├── local-test.sh                      # Wrapper script
-│   └── node-verify.sh                     # Container entrypoint
-```
-
-### 2.2 Service Layer Architecture
-
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                     devtools/docker-compose.yaml                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  LAYER 1: Database Containers (Stateful - Reset Between Tests)              │
-│  ┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐    │
-│  │  mysql-typ-e-db     │ │  mysql-wonkers-db   │ │     localstack      │    │
-│  │  Port: 1123:3306    │ │  Port: 1124:3306    │ │  Port: 4566-4599    │    │
-│  │  DB: tinybots       │ │  DB: dashboard      │ │  Services: SQS      │    │
-│  └─────────────────────┘ └─────────────────────┘ └─────────────────────┘    │
-│                                                                              │
-│  LAYER 2: Migration Runners (Run Once, Wait for Completion)                 │
-│  ┌─────────────────────┐ ┌─────────────────────┐                            │
-│  │       typ-e         │ │     wonkers-db      │                            │
-│  │  Flyway migrations  │ │  Flyway migrations  │                            │
-│  │  depends: mysql-typ │ │  depends: mysql-won │                            │
-│  └─────────────────────┘ └─────────────────────┘                            │
-│                                                                              │
-│  LAYER 3: Application Services (Stateless - Reusable)                       │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐│
-│  │ checkpoint │ │   prowl    │ │  wonkers   │ │  wonkers-  │ │  kryten    ││
-│  │ Port: 3002 │ │ Port: 3001 │ │ Port: 8080 │ │  account   │ │ Port: 8080 ││
-│  └────────────┘ └────────────┘ └────────────┘ └────────────┘ └────────────┘│
-│                                                                              │
-│  LAYER 4: Test Runner Services (Ephemeral - Created Per Test Run)           │
-│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐                │
-│  │ wonkers-graphql │ │ megazord-events │ │  micro-manager  │ ...           │
-│  │ node:22-alpine  │ │ node:22-alpine  │ │ node:22-alpine  │                │
-│  │ mounts: /repo   │ │ mounts: /repo   │ │ mounts: /repo   │                │
-│  └─────────────────┘ └─────────────────┘ └─────────────────┘                │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 3. Service Dependency Reference
-
-### 3.1 Container Name Mapping
-
-When migrating from `ci/docker-compose.yml` to `devtools/docker-compose.yaml`:
-
-| CI Container Name | DevTools Container Name | Purpose | Schema |
-|-------------------|------------------------|---------|--------|
-| `mysql-db` | `mysql-typ-e-db` | TinyBots main database | `tinybots` |
-| `mysql-type-db` | `mysql-typ-e-db` | Same as above (variant) | `tinybots` |
-| `mysql-dashboard-db` | `mysql-wonkers-db` | Wonkers/Dashboard database | `dashboard` |
-| `wonkers-mysql-db` | `mysql-wonkers-db` | Same as above (variant) | `dashboard` |
-| `typ-e` | `typ-e` | Migration runner | - |
-| `wonkers-db` | `wonkers-db` | Migration runner | - |
-| `checkpoint` | `checkpoint` | Service | - |
-| `prowl` | `prowl` | Service | - |
-| `wonkers` | `wonkers` | Wonkers API | - |
-| `wonkers-account` | `wonkers-account` | Wonkers Account service | - |
-| `localstack` | `localstack` | AWS mock (SQS) | - |
-| `mailcatcher` | `mailcatcher` | Email testing | - |
-| `kryten` | `kryten` | User service | - |
-
-### 3.2 Environment Variable Hostname Updates
-
-When copying environment variables from CI to DevTools, update hostnames:
-
-```diff
-# Database hosts
-- DB_RW_HOST: mysql-db
-+ DB_RW_HOST: mysql-typ-e-db
-
-- DB_HOST: mysql-type-db
-+ DB_HOST: mysql-typ-e-db
-
-- DB_WONKERS_HOST: mysql-dashboard-db
-+ DB_WONKERS_HOST: mysql-wonkers-db
-
-- DB_WONKERS_ACCOUNT_RW_HOST: wonkers-mysql-db
-+ DB_WONKERS_ACCOUNT_RW_HOST: mysql-wonkers-db
-```
-
-### 3.3 Repository Dependency Matrix
-
-| Repository | Databases | Migrations | Services | LocalStack |
-|------------|-----------|------------|----------|------------|
-| `wonkers-graphql` | typ-e, wonkers | typ-e, wonkers-db | wonkers, wonkers-account | ❌ |
-| `megazord-events` | typ-e, wonkers | typ-e, wonkers-db | checkpoint, prowl, wonkers, wonkers-account | ✅ |
-| `micro-manager` | typ-e | typ-e | checkpoint, prowl | ❌ |
-| `m-o-triggers` | typ-e | typ-e | checkpoint, prowl | ✅ |
-| `wonkers-ecd` | wonkers | wonkers-db | kryten, mailcatcher | ❌ |
-| `azi-3-status-check-jobs` | typ-e, wonkers | typ-e, wonkers-db | - | ❌ |
-
----
-
-## 4. Implementation Guide
-
-### 4.1 Creating Commands for a New Repository
-
-#### Step 1: Read CI Configuration Files
-
-Always read these files first:
-
-```
-<repo>/ci/docker-compose.yml    # Service definitions & dependencies
-<repo>/ci/test.sh               # Startup sequence & cleanup logic
-<repo>/ci/local-test.sh         # Entry point wrapper (if exists)
-<repo>/ci/node-verify.sh        # Container entrypoint commands
-```
-
-#### Step 2: Extract Dependency Information
-
-From `ci/docker-compose.yml`, identify:
-
-1. **Database containers** (under `links:` or `depends_on:`)
-   ```yaml
-   links:
-     - mysql-db           # → mysql-typ-e-db
-     - mysql-dashboard-db # → mysql-wonkers-db
-   ```
-
-2. **Service dependencies** (from `links:` or environment variables)
-   ```yaml
-   environment:
-     CHECKPOINT_ADDRESS: http://checkpoint:8080  # → needs checkpoint
-     PROWL_ADDRESS: http://prowl:8080           # → needs prowl
-   ```
-
-3. **AWS/External services**
-   ```yaml
-   AWS_ENDPOINT: http://localstack:4566         # → needs localstack
-   ```
-
-4. **Test entrypoint**
-   ```yaml
-   entrypoint: ci/node-verify.sh
-   # or
-   entrypoint: ["sh", "-c", "yarn test"]
-   ```
-
-From `ci/test.sh`, identify startup sequence:
 ```bash
-docker-compose up -d mysql-db typ-e           # DBs first
-docker attach $(docker ps -q --filter=...)    # Wait for migrations
-docker-compose up -d checkpoint prowl         # Then services
-docker-compose up -d                          # Finally test runner
+# Local development workflow
+cd /path/to/tinybots/devtools
+just start-megazord-events  # Starts DBs, migrations, and services
+# Make code changes in megazord-events/
+just test-megazord-events   # Run tests with clean database state
+
+# View service logs
+just log-micro-manager
+
+# Debug mode for interactive development
+just debug-wonkers-graphql  # Starts with Node inspector on port 9229
 ```
 
-#### Step 3: Verify Service Definition in docker-compose.yaml
+### Command Patterns Explained
 
-Check if the test runner service already exists in `devtools/docker-compose.yaml`:
+**`start-<repo>`**: Starts all dependencies but not the test runner itself. Useful for:
+- Running the app manually in your IDE with debugger attached
+- Iterating on code without running full test suite
+- Keeping services running while switching between repos
 
-```yaml
-  <repo-name>:
-    image: node:22-alpine
-    volumes:
-      - /Users/kai/work/tinybots/<repo-name>:/usr/src/app
-    labels:
-      - <repo-name>
-    environment:
-      # All required env vars with CORRECTED hostnames
-    working_dir: /usr/src/app
-    entrypoint: ["sh", "-c", "yarn test:only"]  # or yarn test
-    depends_on:
-      typ-e:
-        condition: service_completed_successfully
-```
-
-If not, add it.
-
-#### Step 4: Create Justfile Commands
-
-Create `devtools/justfiles/<repo-name>.just`:
-
-```just
-# ------------------------------------- <Repository Name> -------------------------------------
-
-# Start all dependencies (for development/debugging)
-start-<repo-name>:
-    {{compose}} up -d \
-      <db-containers> <migration-runners> <service-containers>
-    -{{compose}} logs -f \
-      <db-containers> <migration-runners> <service-containers>
-
-# Run integration tests (resets DBs for clean state)
-test-<repo-name>:
-    {{compose}} rm -sf <stateful-containers-only>
-    {{compose}} up -d \
-      <all-required-services-except-test-runner>
-    {{compose}} run --rm --use-aliases <repo-name>
-
-# View logs without starting containers
-log-<repo-name>:
-    {{compose}} logs -f \
-      <all-required-services>
-
-# Development mode with hot-reload (optional)
-dev-<repo-name>:
-    {{compose}} run --rm --service-ports --use-aliases \
-      --entrypoint "sh -c 'corepack enable && yarn dev'" <repo-name>
-
-# Debug mode with inspector (optional)
-debug-<repo-name>:
-    {{compose}} run --rm --service-ports --use-aliases \
-      --entrypoint "sh -c 'corepack enable && yarn debug'" <repo-name>
-```
-
-#### Step 5: Import in Main Justfile
-
-Add to `devtools/Justfile`:
-
-```just
-import 'justfiles/<repo-name>.just'
-```
-
----
-
-## 5. Existing Implementations (Reference Examples)
-
-### 5.1 wonkers-graphql.just
-
-**Dependencies**: Both databases, migration runners, wonkers services
-
-```just
-#. ------------------------------------- Wonkers GraphQL -------------------------------------
-start-wonkers-graphql:
-    {{compose}} up -d \
-      mysql-typ-e-db typ-e mysql-wonkers-db wonkers-db wonkers wonkers-account
-    -{{compose}} logs -f \
-      mysql-typ-e-db typ-e mysql-wonkers-db wonkers-db wonkers wonkers-account
-
-test-wonkers-graphql:
-    {{compose}} rm -sf mysql-typ-e-db mysql-wonkers-db
-    {{compose}} up -d \
-          mysql-typ-e-db typ-e mysql-wonkers-db wonkers-db wonkers wonkers-account
-    {{compose}} run --rm  --use-aliases wonkers-graphql
-
-log-wonkers-graphql:
-    {{compose}} logs -f \
-      mysql-typ-e-db typ-e mysql-wonkers-db wonkers-db wonkers wonkers-account
-```
-
-**Analysis**:
-- Uses both `mysql-typ-e-db` and `mysql-wonkers-db` (both DBs)
-- Needs `typ-e` and `wonkers-db` migration runners
-- Needs `wonkers` and `wonkers-account` services
-- **Removes**: Both MySQL containers (stateful)
-
-### 5.2 megazord-events.just
-
-**Dependencies**: Both databases, LocalStack, checkpoint, prowl, wonkers services
-
-```just
-# ------------------------------------- Megazord Events. -------------------------------------
-dev-megazord-events:
-    {{compose}} run --rm --service-ports  --use-aliases --entrypoint "sh -c 'corepack enable && yarn start'" megazord-events
-
-debug-megazord-events:
-    {{compose}} run --rm --service-ports  --use-aliases --entrypoint "sh -c 'corepack enable && yarn dev'" megazord-events
-
-start-megazord-events:
-    {{compose}} up -d \
-      mysql-typ-e-db typ-e mysql-wonkers-db wonkers-db localstack checkpoint prowl wonkers wonkers-account
-
+**`test-<repo>`**: Resets databases to clean state, starts services, and runs tests:
+```bash
+# Pattern from justfiles/megazord-events.just
 test-megazord-events:
-    {{compose}} rm -sf mysql-typ-e-db mysql-wonkers-db localstack
-    {{compose}} up -d \
-      mysql-typ-e-db mysql-wonkers-db localstack checkpoint prowl wonkers wonkers-account wonkers-db
-    {{compose}} run --rm --use-aliases megazord-events
-
-log-megazord-events:
-    -{{compose}} logs -f \
-          mysql-typ-e-db typ-e mysql-wonkers-db wonkers-db localstack checkpoint prowl wonkers wonkers-account
+    {{compose}} rm -sf mysql-typ-e-db mysql-wonkers-db localstack  # Reset stateful containers
+    {{compose}} up -d mysql-typ-e-db mysql-wonkers-db localstack checkpoint prowl wonkers wonkers-account wonkers-db
+    {{compose}} run --rm --use-aliases megazord-events  # Run tests
 ```
 
-**Analysis**:
-- Uses both databases + LocalStack (SQS)
-- Needs checkpoint and prowl services
-- **Removes**: Both MySQL containers AND localstack (stateful queue)
-- **Note**: Includes dev/debug commands for development
+**Key Design Decision:** Only stateful containers (databases, LocalStack) are removed between test runs. Application services (checkpoint, prowl, etc.) are reused, dramatically reducing startup time.
 
-### 5.3 m-o-triggers.just
+### Creating New Just Commands
 
-**Dependencies**: typ-e database, LocalStack, checkpoint, prowl
+When adding integration test support for a new repository, follow the detailed guide in:
 
-```just
-# ------------------------------------- m-o-triggers -------------------------------------
-test-m-o-triggers:
-    {{compose}} rm -sf mysql-typ-e-db mysql-wonkers-db localstack
-    {{compose}} up -d \
-      mysql-typ-e-db mysql-wonkers-db localstack checkpoint prowl
-    {{compose}} run --rm --use-aliases m-o-triggers
-```
+**→ [devdocs/tinybots/devtools/create-just-commands.md](create-just-commands.md)**
 
-**Analysis**:
-- Minimal dependencies (typ-e schema only)
-- Uses LocalStack for SQS
-- **Removes**: Both MySQL containers AND localstack
-
-### 5.4 wonkers-ecd.just
-
-**Dependencies**: wonkers database only (not typ-e)
-
-```just
-# ------------------------------------- wonkers-ecd -------------------------------------
-test-wonkers-ecd:
-    {{compose}} rm -sf mysql-wonkers-db
-    {{compose}} up -d \
-     mysql-wonkers-db wonkers-db mailcatcher kryten
-    {{compose}} run --rm --use-aliases wonkers-ecd
-```
-
-**Analysis**:
-- Only uses `mysql-wonkers-db` (dashboard schema)
-- Needs `mailcatcher` and `kryten` services
-- **Removes**: Only `mysql-wonkers-db` (not typ-e)
+The guide covers:
+- Reading CI configuration to extract dependencies
+- Mapping legacy container names to DevTools names
+- Creating repository-specific `.just` files
+- Importing commands into main Justfile
+- Service dependency matrix and troubleshooting
 
 ---
 
-## 6. micro-manager Implementation
+## Key Feature 2: Database Seeding for Local Testing
 
-### 6.1 CI Analysis
+### Overview
 
-From `micro-manager/ci/docker-compose.yml`:
+The `src/seed/` directory provides a TypeScript-based seeding system to populate databases with realistic test data. This eliminates manual SQL imports and ensures consistent baseline data for local development.
 
-```yaml
-services:
-  mysql-db:                    # → mysql-typ-e-db
-    image: mysql:8.0
-  typ-e:                       # Migration runner
-    depends_on: mysql-db
-  checkpoint:                  # Required service
-    links: [mysql-db]
-  prowl:                       # Required service  
-    links: [mysql-db]
-  node:
-    labels: [micro-manager]
-    environment:
-      DB_RW_HOST: mysql-db     # → mysql-typ-e-db
-      CHECKPOINT_ADDRESS: http://checkpoint:8080
-      PROWL_ADDRESS: http://prowl:8080
-      EVE_ADDRESS: http://eve:8080
-      WADSWORTH_ADDRESS: http://wadsworth:8080
-      COMMANDER_DATA_ADDRESS: http://commander-data:8080
-      REPORTING_ADDRESS: http://reporting:8080
-      SIGMUND_ADDRESS: http://sigmund:8080
-      WONKERS_ROBOTS_ADDRESS: http://wonkers-robots:8080
-      ROBOCOP_ADDRESS: http://robocop:8080
-      PUBLIC_BOT_ID: 999999
-    entrypoint: ci/node-verify.sh
-    depends_on:
-      typ-e: {condition: service_completed_successfully}
-    links: [mysql-db, checkpoint]
-```
-
-From `micro-manager/ci/test.sh`:
+### Available Seed Scripts
 
 ```bash
-docker-compose up -d mysql-db typ-e
-docker attach $(docker ps -q --filter=label=service.name=typ-e)
-docker-compose up -d checkpoint prowl
-docker-compose up -d
-docker attach $(docker ps -q --filter=label=micro-manager)
+# Generate Prisma clients (required before seeding)
+npm run generate
+
+# Seed data into databases
+npm run seed
+
+# Clean all seeded data
+npm run seed:clean
+
+# Seed with specific scope (partial seeding)
+npm run seed -- --scope=<scope-name>
+
+# Dry-run mode (preview changes without applying)
+npm run seed -- --dry-run
 ```
 
-### 6.2 Already in docker-compose.yaml
+### Seed Architecture
 
-```yaml
-  micro-manager:
-    image: node:22-alpine
-    volumes:
-      - /Users/kai/work/tinybots/micro-manager:/usr/src/app
-    labels:
-      - micro-manager
-    environment:
-      DB_RW_HOST: mysql-typ-e-db
-      DB_PORT: 3306
-      CHECKPOINT_ADDRESS: http://checkpoint:8080
-      PROWL_ADDRESS: http://prowl:8080
-      EVE_ADDRESS: http://eve:8080
-      WADSWORTH_ADDRESS: http://wadsworth:8080
-      COMMANDER_DATA_ADDRESS: http://commander-data:8080
-      REPORTING_ADDRESS: http://reporting:8080
-      SIGMUND_ADDRESS: http://sigmund:8080
-      WONKERS_ROBOTS_ADDRESS: http://wonkers-robots:8080
-      ROBOCOP_ADDRESS: http://robocop:8080
-      PUBLIC_BOT_ID: 999999
-    working_dir: /usr/src/app
-    entrypoint: ["sh", "-c", "yarn test:only"]
-    depends_on:
-      typ-e:
-        condition: service_completed_successfully
+**Orchestrator Pattern:** `src/seed/core/Orchestrator.ts` manages execution order and dependencies between seed units.
+
+**Seed Units** (`src/seed/units/`):
+- `RobotAccountStatusSeed` - Robot account statuses
+- `RobotAccountSeed` - Robot accounts with references
+- `EventProviderSeed` - Event providers for megazord-events
+- `EventSchemaSeed` - Event schemas
+- `IncomingEventCleanerSeed` - Cleans incoming events
+- `ScriptReferenceSeed` - Script references for micro-manager
+- `ScriptVersionSeed` - Script versions
+- `TaskScheduleSeed` - Scheduled tasks
+- `ScriptExecutionSeed` - Script execution history
+
+**Context Management:** `src/seed/core/SeedContext.ts` provides database connections via Prisma clients:
+- `tinybots` database → `mysql-typ-e-db` (port 1123)
+- `dashboard` database → `mysql-wonkers-db` (port 1124)
+
+### Common Workflows
+
+**Initial Setup:**
+```bash
+cd /path/to/tinybots/devtools
+npm install
+npm run generate  # Generate Prisma clients
+npm run seed      # Populate databases
 ```
 
-### 6.3 Required Justfile Commands
-
-Create `devtools/justfiles/micro-manager.just`:
-
-```just
-# ------------------------------------- Micro Manager -------------------------------------
-
-# Start dependencies for development
-start-micro-manager:
-    {{compose}} up -d \
-      mysql-typ-e-db typ-e checkpoint prowl
-    -{{compose}} logs -f \
-      mysql-typ-e-db typ-e checkpoint prowl
-
-# Run integration tests
-test-micro-manager:
-    {{compose}} rm -sf mysql-typ-e-db
-    {{compose}} up -d \
-      mysql-typ-e-db typ-e checkpoint prowl
-    {{compose}} run --rm --use-aliases micro-manager
-
-# View logs
-log-micro-manager:
-    {{compose}} logs -f \
-      mysql-typ-e-db typ-e checkpoint prowl
-
-# Development mode
-dev-micro-manager:
-    {{compose}} run --rm --service-ports --use-aliases \
-      --entrypoint "sh -c 'corepack enable && yarn dev'" micro-manager
-
-# Debug mode with inspector
-debug-micro-manager:
-    {{compose}} run --rm --service-ports --use-aliases \
-      --entrypoint "sh -c 'corepack enable && yarn debug'" micro-manager
+**Reset to Clean State:**
+```bash
+npm run seed:clean  # Remove all seeded data
+npm run seed        # Re-populate
 ```
 
-### 6.4 Justfile Import
+**Working with Specific Data:**
+```bash
+# Seed only robots and related data
+npm run seed -- --scope=robots
 
-Add to `devtools/Justfile`:
+# Preview what would be seeded
+npm run seed -- --dry-run
+```
 
-```just
-import 'justfiles/micro-manager.just'
+### Database Access
+
+Databases are accessible from host machine:
+
+| Database | Host | Port | Database Name | Username | Password |
+|----------|------|------|---------------|----------|----------|
+| typ-e-db | localhost | 1123 | tinybots | root | ICgVcbpYW731vY3UjexgAnuQ69Wv2DdN |
+| wonkers-db | localhost | 1124 | dashboard | root | ICgVcbpYW731vY3UjexgAnuQ69Wv2DdN |
+| atlas-intelligence-db | localhost | 1126 | analytics | root | ICgVcbpYW731vY3UjexgAnuQ69Wv2DdN |
+
+**Direct MySQL Access:**
+```bash
+# Connect to tinybots database
+mysql -h 127.0.0.1 -P 1123 -u root -pICgVcbpYW731vY3UjexgAnuQ69Wv2DdN tinybots
+
+# Or via Docker exec
+docker exec -it mysql-typ-e-db mysql -u root -pICgVcbpYW731vY3UjexgAnuQ69Wv2DdN tinybots
+```
+
+### Prisma Schema Management
+
+Schemas are located in `prisma/`:
+- `prisma/tinybots/schema.prisma` - typ-e-db schema
+- `prisma/dashboard/schema.prisma` - wonkers-db schema
+
+**Sync schema from database:**
+```bash
+npm run db:pull:tinybots   # Pull schema from typ-e-db
+npm run db:pull:dashboard  # Pull schema from wonkers-db
 ```
 
 ---
 
-## 7. Command Patterns & Best Practices
+## Project Structure
 
-### 7.1 Standard Commands
-
-| Command | Purpose | When to Use |
-|---------|---------|-------------|
-| `start-<repo>` | Start all dependencies, tail logs | Development, debugging |
-| `test-<repo>` | Run tests with clean DB state | CI, local testing |
-| `log-<repo>` | View logs for all services | Debugging |
-| `dev-<repo>` | Hot-reload development mode | Active development |
-| `debug-<repo>` | With Node inspector attached | Debugging code |
-
-### 7.2 Selective Container Removal Rules
-
-**ALWAYS Remove**:
-- `mysql-typ-e-db` - Contains test data
-- `mysql-wonkers-db` - Contains test data
-
-**SOMETIMES Remove**:
-- `localstack` - If tests use SQS queues that need reset
-
-**NEVER Remove in test command**:
-- `typ-e`, `wonkers-db` - Migration runners (will re-run)
-- `checkpoint`, `prowl`, `wonkers` - Stateless services
-
-### 7.3 Docker Compose Flags
-
-```bash
-# rm -sf: Remove containers and their anonymous volumes (force)
-{{compose}} rm -sf mysql-typ-e-db
-
-# up -d: Detached mode (background)
-{{compose}} up -d service1 service2
-
-# run --rm: Auto-remove container after exit
-# --use-aliases: Enable service DNS resolution in network
-{{compose}} run --rm --use-aliases service
-
-# --service-ports: Expose ports defined in compose file
-{{compose}} run --rm --service-ports --use-aliases service
+```
+devtools/
+├── docker-compose.yaml          # All service definitions (single source of truth)
+├── Justfile                     # Main orchestrator (imports repo-specific files)
+├── package.json                 # Seed scripts and Prisma commands
+├── justfiles/                   # Per-repo command definitions
+│   ├── database.just           # Database startup commands
+│   ├── atlas.just
+│   ├── azi-3-status-check-jobs.just
+│   ├── m-o-triggers.just
+│   ├── megazord-events.just
+│   ├── micro-manager.just
+│   ├── wonkers-ecd.just
+│   └── wonkers-graphql.just
+├── localstack/                  # LocalStack initialization scripts
+│   └── *.sh                    # SQS queue setup, etc.
+├── prisma/                      # Prisma schemas and generated clients
+│   ├── tinybots/
+│   │   └── schema.prisma
+│   └── dashboard/
+│       └── schema.prisma
+└── src/
+    ├── config/                  # Database connection configs
+    ├── generated/              # Prisma generated clients
+    └── seed/                   # Seeding system
+        ├── core/               # Orchestrator and context
+        │   ├── Orchestrator.ts
+        │   └── SeedContext.ts
+        └── units/              # Individual seed modules
+            ├── RobotAccountStatusSeed.ts
+            ├── RobotAccountSeed.ts
+            ├── EventProviderSeed.ts
+            ├── EventSchemaSeed.ts
+            ├── ScriptReferenceSeed.ts
+            └── ...
 ```
 
 ---
 
-## 8. Troubleshooting
+## Docker Compose Service Architecture
 
-### 8.1 Common Issues
+### Service Layers
 
-| Issue | Symptom | Solution |
-|-------|---------|----------|
-| Tests fail before DB ready | Connection errors | Check `depends_on` with `service_completed_successfully` |
-| Can't connect to service | Host not found | Verify hostname matches service name in docker-compose |
-| Port conflicts | "port already in use" | Check unique host ports (1123, 1124, etc.) |
-| Stale test data | Inconsistent results | Ensure DB containers are in `rm -sf` command |
-| ECR auth fails | "authentication required" | Run `just start-db` which includes ECR login |
-| Container "already in use" | Name conflict | Add `--rm` flag to `docker compose run` |
+**Layer 1: Databases (Stateful - Reset Between Tests)**
+- `mysql-typ-e-db` - TinyBots main database (port 1123)
+- `mysql-wonkers-db` - Dashboard/Wonkers database (port 1124)
+- `mysql-atlas-intelligence-db` - Atlas analytics database (port 1126)
+- `localstack` - AWS services mock (SQS, ports 4566-4599)
 
-### 8.2 Debugging Commands
+**Layer 2: Migration Runners (Run Once Per Database Reset)**
+- `typ-e` - Flyway migrations for typ-e-db
+- `wonkers-db` - Flyway migrations for wonkers-db
+- `intelligence` - Flyway migrations for atlas-intelligence-db
+
+**Layer 3: Application Services (Stateless - Reusable)**
+- `checkpoint` - Permission and scheduling service (port 3002)
+- `prowl` - Robot coordination service (port 3001)
+- `wonkers` - Wonkers API (port 8080)
+- `wonkers-account` - Account management service
+- `kryten` - User service (port 8080)
+- `mailcatcher` - Email testing service
+
+**Layer 4: Test Runners (Ephemeral - Created Per Test)**
+- `wonkers-graphql`, `megazord-events`, `micro-manager`, etc.
+- Mount local repo into container and run test suite
+- Use `--use-aliases` for service discovery via container names
+
+### Why This Architecture Is Fast
+
+**Traditional CI Approach (Slow):**
+```bash
+trap 'docker-compose down && docker volume rm $(docker volume ls -q)' EXIT
+# ☠️ Destroys EVERYTHING on exit, rebuild takes 5-10min
+```
+
+**DevTools Approach (Fast):**
+```bash
+docker compose rm -sf mysql-typ-e-db mysql-wonkers-db  # Only remove DBs
+docker compose up -d <services>                         # Reuse if already running
+# ⚡ Selective reset takes 1-2min
+```
+
+Services remain running between test runs. Only databases are reset to ensure clean state.
+
+---
+
+## Prerequisites & Setup
+
+### Required Tools
+
+- **Docker & Docker Compose** (v2.x+)
+- **Just** - Command runner (`brew install just` on macOS)
+- **Node.js 18+** - For seed scripts
+- **AWS ECR Access** - For pulling service images (typ-e, wonkers-db, checkpoint, prowl, etc.)
+
+### Initial Setup
+
+1. **Authenticate with ECR:**
+   ```bash
+   aws ecr get-login-password --region eu-central-1 | \
+     docker login --username AWS --password-stdin \
+     https://693338167548.dkr.ecr.eu-central-1.amazonaws.com
+   ```
+
+2. **Start databases and migrations:**
+   ```bash
+   cd devtools
+   just start-db
+   ```
+
+3. **Install dependencies and seed data:**
+   ```bash
+   npm install
+   npm run generate
+   npm run seed
+   ```
+
+4. **Verify services:**
+   ```bash
+   docker compose ps
+   # Should show typ-e-db, wonkers-db running
+   # Migration runners (typ-e, wonkers-db) will show "exited (0)"
+   ```
+
+---
+
+## Common Workflows
+
+### Daily Development
 
 ```bash
-# View all running containers
-docker ps
+# Start dependencies for your repo
+just start-<your-repo>
+
+# Make code changes in ../your-repo/
+
+# Run tests with clean database
+just test-<your-repo>
+
+# View logs if something fails
+just log-<your-repo>
+```
+
+### Debugging Integration Tests
+
+```bash
+# Start services without running tests
+just start-<repo>
+
+# In another terminal, run tests manually
+cd ../<repo>
+yarn test
+
+# Or attach debugger from IDE to existing containers
+```
+
+### Resetting Everything
+
+```bash
+# Stop all services
+docker compose down
+
+# Remove volumes (nuclear option)
+docker volume rm $(docker volume ls -q | grep tinybots-devtools)
+
+# Fresh start
+just start-db
+npm run seed
+```
+
+### Adding Test Data
+
+```bash
+# Modify seed units in src/seed/units/
+# Then re-run seeding
+npm run seed:clean
+npm run seed
+```
+
+---
+
+## Environment Variables
+
+Most services use default environment variables defined in `docker-compose.yaml`. Override per-service if needed:
+
+```bash
+# Example: Override typ-e version
+TYP_E_VERSION=v2.3.4 just start-db
+
+# Example: Override checkpoint version
+CHECKPOINT_VERSION=develop just start-megazord-events
+```
+
+**Common Variables:**
+- `TYP_E_VERSION` - typ-e migration runner image tag (default: latest)
+- `WONKERS_DB_VERSION` - wonkers-db migration runner image tag (default: latest)
+- `CHECKPOINT_VERSION` - checkpoint service image tag (default: latest)
+- `INTELLIGENCE_VERSION` - intelligence migration runner image tag (default: latest)
+
+---
+
+## Troubleshooting
+
+### Services Won't Start
+
+```bash
+# Check if containers are running
+docker compose ps
 
 # View logs for specific service
-docker compose -f devtools/docker-compose.yaml logs -f <service>
+docker compose logs -f <service-name>
 
-# Get shell into running container
-docker compose -f devtools/docker-compose.yaml exec <service> sh
+# Restart a specific service
+docker compose restart <service-name>
+```
 
-# Force recreate containers
-docker compose -f devtools/docker-compose.yaml up -d --force-recreate <service>
+### Migration Failures
 
-# Remove all devtools containers
-docker compose -f devtools/docker-compose.yaml down
+```bash
+# Check migration runner logs
+docker compose logs typ-e
+docker compose logs wonkers-db
+
+# Manually reset database
+docker compose rm -sf mysql-typ-e-db
+docker compose up -d mysql-typ-e-db
+# Wait for MySQL to be ready
+docker compose up typ-e
+```
+
+### Seed Script Fails
+
+```bash
+# Regenerate Prisma clients
+npm run generate
+
+# Check database connectivity
+mysql -h 127.0.0.1 -P 1123 -u root -pICgVcbpYW731vY3UjexgAnuQ69Wv2DdN tinybots
+
+# Run seed with verbose logging
+DEBUG=* npm run seed
+```
+
+### Port Conflicts
+
+If ports 1123, 1124, or 1126 are already in use:
+
+```bash
+# Find process using port
+lsof -i :1123
+
+# Kill process or modify docker-compose.yaml ports
 ```
 
 ---
 
-## 9. File Templates
+## Related Documentation
 
-### 9.1 Justfile Template
-
-```just
-# ------------------------------------- <Repository Name> -------------------------------------
-
-# Start dependencies for development
-start-<repo>:
-    {{compose}} up -d \
-      <db-container> <migration-runner> <services>
-    -{{compose}} logs -f \
-      <db-container> <migration-runner> <services>
-
-# Run integration tests with clean DB
-test-<repo>:
-    {{compose}} rm -sf <db-containers>
-    {{compose}} up -d \
-      <all-dependencies>
-    {{compose}} run --rm --use-aliases <repo>
-
-# View logs
-log-<repo>:
-    {{compose}} logs -f \
-      <all-dependencies>
-
-# Development mode
-dev-<repo>:
-    {{compose}} run --rm --service-ports --use-aliases \
-      --entrypoint "sh -c 'corepack enable && yarn dev'" <repo>
-```
-
-### 9.2 Docker Compose Service Template
-
-```yaml
-  <repo-name>:
-    image: node:22-alpine
-    volumes:
-      - /Users/kai/work/tinybots/<repo-name>:/usr/src/app
-    labels:
-      - <repo-name>
-    environment:
-      DB_RW_HOST: mysql-typ-e-db          # or mysql-wonkers-db
-      DB_PORT: 3306
-      # Add all required environment variables
-      # Update hostnames to match devtools service names
-    working_dir: /usr/src/app
-    entrypoint: ["sh", "-c", "yarn test:only"]
-    depends_on:
-      typ-e:                              # or wonkers-db
-        condition: service_completed_successfully
-```
+- **[create-just-commands.md](create-just-commands.md)** - Detailed guide for adding integration test support for new repositories
+- **[AGENTS.md](/Users/kai/work/tinybots/AGENTS.md)** - TinyBots engineering protocols and AI agent guidelines
+- **[devdocs/tinybots/OVERVIEW.md](../OVERVIEW.md)** - Global TinyBots project overview
 
 ---
 
-## 10. Quick Reference Checklist
+## External Dependencies
 
-When adding a new repository to devtools:
+### Docker Images (ECR)
 
-- [ ] Read `<repo>/ci/docker-compose.yml`
-- [ ] Read `<repo>/ci/test.sh`
-- [ ] Identify database dependencies (typ-e, wonkers, or both)
-- [ ] Identify service dependencies (checkpoint, prowl, localstack, etc.)
-- [ ] Map CI container names to devtools names (see Section 3.1)
-- [ ] Verify test runner service exists in `devtools/docker-compose.yaml`
-- [ ] If not, add service definition with corrected hostnames
-- [ ] Create `devtools/justfiles/<repo>.just` with standard commands
-- [ ] Add import to `devtools/Justfile`
-- [ ] Test with `just test-<repo>`
-- [ ] Verify DB containers are removed in test command
-- [ ] Document any special requirements
+All application images are hosted in AWS ECR (`693338167548.dkr.ecr.eu-central-1.amazonaws.com`):
+- `typ-e:<version>` - TinyBots main API and migration runner
+- `wonkers-db:<version>` - Wonkers database migration runner
+- `intelligence:<version>` - Atlas intelligence migration runner
+- `checkpoint:<version>` - Permission and scheduling service
+- `prowl:<version>` - Robot coordination service
+- `wonkers:<version>` - Wonkers API
+- `wonkers-account:<version>` - Account management service
+- `kryten:<version>` - User service
 
----
-
-## 11. Related Files
-
-| File | Purpose |
-|------|---------|
-| `devtools/Justfile` | Main orchestration file |
-| `devtools/docker-compose.yaml` | Complete service definitions |
-| `devtools/justfiles/*.just` | Per-repo command files |
-| `devdocs/tinybots/OVERVIEW.md` | Global TinyBots standards |
-| `<repo>/ci/docker-compose.yml` | Original repo CI configs (reference) |
-| `<repo>/ci/test.sh` | Original test scripts (reference) |
+### Public Images
+- `mysql:8.0` - MySQL database
+- `localstack/localstack` - AWS services mock
+- `node:22-alpine` - Node.js runtime for test runners
 
 ---
 
-## 12. Changelog
+## Design Principles
 
-| Date | Version | Changes |
-|------|---------|---------|
-| 2025-12-31 | 1.0 | Initial documentation for AI agents |
+1. **Single Source of Truth:** All service definitions live in `devtools/docker-compose.yaml`, not scattered across repos.
 
+2. **Stateful vs Stateless:** Only databases and LocalStack are reset between tests. Application services are reused for speed.
 
+3. **Explicit Dependencies:** Just commands clearly declare which services each repo needs, making dependency graphs transparent.
+
+4. **Volume Management:** Docker manages volumes automatically. No manual volume cleanup needed between test runs.
+
+5. **Service Discovery:** Test runners use `--use-aliases` to connect to services via container names (e.g., `mysql-typ-e-db`, `checkpoint`).
+
+6. **Migration Safety:** Migration runners use `depends_on` to wait for databases, and `service_completed_successfully` to ensure they run before tests.
+
+7. **Developer Experience:** One-liner commands (`just test-<repo>`) hide Docker Compose complexity while remaining transparent and debuggable.

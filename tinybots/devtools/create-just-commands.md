@@ -17,6 +17,7 @@ The `devtools/` directory provides a **centralized Docker Compose infrastructure
 ### Why It Exists
 
 **Problem with Default CI Approach:**
+
 ```bash
 # Each repo's ci/test.sh has a trap that destroys EVERYTHING:
 trap '{
@@ -26,11 +27,18 @@ trap '{
 ```
 
 **DevTools Solution:**
+
 ```bash
 # Only removes stateful containers (databases), keeps services running:
 {{compose}} rm -sf mysql-typ-e-db mysql-wonkers-db   # Only DBs
 {{compose}} up -d <required-services>                 # Starts what's needed
 {{compose}} run --rm --use-aliases <repo>            # Runs tests
+```
+
+With just command
+
+```dotnetcli
+just start-atlas 2>&1 | head -50
 ```
 
 ### Key Benefits
@@ -183,6 +191,7 @@ Always read these files first:
 From `ci/docker-compose.yml`, identify:
 
 1. **Database containers** (under `links:` or `depends_on:`)
+
    ```yaml
    links:
      - mysql-db           # → mysql-typ-e-db
@@ -190,6 +199,7 @@ From `ci/docker-compose.yml`, identify:
    ```
 
 2. **Service dependencies** (from `links:` or environment variables)
+
    ```yaml
    environment:
      CHECKPOINT_ADDRESS: http://checkpoint:8080  # → needs checkpoint
@@ -197,11 +207,13 @@ From `ci/docker-compose.yml`, identify:
    ```
 
 3. **AWS/External services**
+
    ```yaml
    AWS_ENDPOINT: http://localstack:4566         # → needs localstack
    ```
 
 4. **Test entrypoint**
+
    ```yaml
    entrypoint: ci/node-verify.sh
    # or
@@ -209,6 +221,7 @@ From `ci/docker-compose.yml`, identify:
    ```
 
 From `ci/test.sh`, identify startup sequence:
+
 ```bash
 docker-compose up -d mysql-db typ-e           # DBs first
 docker attach $(docker ps -q --filter=...)    # Wait for migrations
@@ -311,6 +324,7 @@ log-wonkers-graphql:
 ```
 
 **Analysis**:
+
 - Uses both `mysql-typ-e-db` and `mysql-wonkers-db` (both DBs)
 - Needs `typ-e` and `wonkers-db` migration runners
 - Needs `wonkers` and `wonkers-account` services
@@ -344,6 +358,7 @@ log-megazord-events:
 ```
 
 **Analysis**:
+
 - Uses both databases + LocalStack (SQS)
 - Needs checkpoint and prowl services
 - **Removes**: Both MySQL containers AND localstack (stateful queue)
@@ -363,6 +378,7 @@ test-m-o-triggers:
 ```
 
 **Analysis**:
+
 - Minimal dependencies (typ-e schema only)
 - Uses LocalStack for SQS
 - **Removes**: Both MySQL containers AND localstack
@@ -381,6 +397,7 @@ test-wonkers-ecd:
 ```
 
 **Analysis**:
+
 - Only uses `mysql-wonkers-db` (dashboard schema)
 - Needs `mailcatcher` and `kryten` services
 - **Removes**: Only `mysql-wonkers-db` (not typ-e)
@@ -524,13 +541,16 @@ import 'justfiles/micro-manager.just'
 ### 7.2 Selective Container Removal Rules
 
 **ALWAYS Remove**:
+
 - `mysql-typ-e-db` - Contains test data
 - `mysql-wonkers-db` - Contains test data
 
 **SOMETIMES Remove**:
+
 - `localstack` - If tests use SQS queues that need reset
 
 **NEVER Remove in test command**:
+
 - `typ-e`, `wonkers-db` - Migration runners (will re-run)
 - `checkpoint`, `prowl`, `wonkers` - Stateless services
 
@@ -679,7 +699,3 @@ When adding a new repository to devtools:
 | Date | Version | Changes |
 |------|---------|---------|
 | 2025-12-31 | 1.0 | Initial documentation for AI agents |
-
-
-
-
