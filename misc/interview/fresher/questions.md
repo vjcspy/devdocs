@@ -37,17 +37,6 @@
 
 
 
-> “Trong lập trình, điều gì làm bạn ‘sướng’ nhất? Điều gì làm bạn ‘bực’ nhất?”
-
-**Follow-up:**
-
-- Lúc bực bạn có bỏ không? Bạn xử lý cảm xúc/tiến độ thế nào?
-- Bạn chọn giải pháp ‘đúng’ hay ‘nhanh’? Khi nào?
-
-**Mục tiêu:** đo passion + mindset làm nghề.
-
-
-
 > “Hãy dạy mình 1 thứ bạn mới học trong 3 phút, theo cách người mới cũng hiểu.”
 
 **Follow-up:**
@@ -92,6 +81,17 @@
 - **Level 1 (Động lực):** "Điều gì giữ cho em tiếp tục làm việc đó đến cùng mà không bỏ cuộc giữa chừng?"
 - **Level 2 (Chi tiết thực thi):** "Em có cách nào để tối ưu hóa công việc nhàm chán đó không, hay chỉ cố làm cho xong?"
 - **Level 3 (Sự tập trung):** "Khi đang cần tập trung cao độ để code logic khó (flow state) mà bị bạn bè rủ đi chơi hoặc có thông báo điện thoại liên tục, em thường xử lý thế nào?"
+
+
+
+> “Trong lập trình, điều gì làm em ‘sướng’ nhất? Điều gì làm bạn ‘bực’ nhất?”
+
+**Follow-up:**
+
+- Lúc bực bạn có bỏ không? Bạn xử lý cảm xúc/tiến độ thế nào?
+- Bạn chọn giải pháp ‘đúng’ hay ‘nhanh’? Khi nào?
+
+**Mục tiêu:** đo passion + mindset làm nghề.
 
 ---
 
