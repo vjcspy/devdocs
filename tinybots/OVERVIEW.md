@@ -55,7 +55,6 @@
 - Kong middleware from tiny-backend-tools provides auth and request context; tiny-internal-services supplies HTTP clients and DTOs; tiny-internal-services-mocks supports isolated tests.
 - SQS queues, cron jobs, and long-lived connectors power automation; validate OpenAPI and schema compatibility against tiny-specs and database schemas before deploys.
 - Keep repo-specific runbooks under devdocs/tinybots/<repo>/OVERVIEW.md up to date, especially for repos currently missing overviews.
-- Database schemas are generated via the devtools Prisma setup; consult `devtools/prisma/tinybots/schema.prisma` for the TinyBots DB and `devtools/prisma/dashboard/schema.prisma` for the Dashboard DB before changing or inspecting table definitions.
 
 Repository Coverage Table
 
