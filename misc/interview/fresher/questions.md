@@ -1,8 +1,10 @@
 # Fresher questions
 
-[TOC]
-
-
+- [Fresher questions](#fresher-questions)
+  - [Đánh giá Kỹ năng Tự học \& Đam mê (Self-learning \& Passion)](#đánh-giá-kỹ-năng-tự-học--đam-mê-self-learning--passion)
+  - [Đánh giá Kỹ năng Giải quyết vấn đề (Problem Solving)](#đánh-giá-kỹ-năng-giải-quyết-vấn-đề-problem-solving)
+  - [Đánh giá Sự chăm chỉ \& Sự tập trung (Diligence \& Focus)](#đánh-giá-sự-chăm-chỉ--sự-tập-trung-diligence--focus)
+  - [Bài tập tình huống (Scenario-based) - Đánh giá tổng hợp](#bài-tập-tình-huống-scenario-based---đánh-giá-tổng-hợp)
 
 ## Đánh giá Kỹ năng Tự học & Đam mê (Self-learning & Passion)
 
@@ -29,8 +31,6 @@
 
 > "Em thường follow những trang tin tức, blog, hay nhân vật nào trong giới công nghệ? Gần đây có tin gì làm em chú ý không?"
 
-
-
 > **“Hãy chọn 1 khái niệm bạn từng học mà lúc đầu hiểu sai. Bạn đã phát hiện và sửa thế nào?”**
 
 **Follow-up:**
@@ -38,8 +38,6 @@
 - Cái “dấu hiệu” nào khiến bạn nghi ngờ mình sai?
 - Bạn đã thay đổi mental model ra sao?
 - Bạn có ghi lại lesson learned không?
-
-
 
 > **“Nếu anh yêu cầu em dạy anh 1 kiến thức nào đó trong 3 phút, em sẽ chọn dạy anh kiến thức gì, theo cách người mới cũng hiểu.”**
 
@@ -51,10 +49,6 @@
 
 **Lý do mạnh:** ai hiểu thật sẽ giải thích mạch lạc.
 
-
-
-
-
 > **“Em từng làm cái gì ‘vượt yêu cầu’ trong đồ án/đi làm thêm?”**
 
 **Follow-up:**
@@ -64,8 +58,6 @@
 - Nếu làm lại, bạn có vẫn làm phần đó không?
 
 **Mục tiêu:** đo **initiative** + **khả năng chịu effort**.
-
-
 
 ---
 
@@ -100,8 +92,6 @@
 - **Level 2 (Chi tiết thực thi):** "Em có cách nào để tối ưu hóa công việc nhàm chán đó không, hay chỉ cố làm cho xong?"
 - **Level 3 (Sự tập trung):** "Khi đang cần tập trung cao độ để code logic khó (flow state) mà bị bạn bè rủ đi chơi hoặc có thông báo điện thoại liên tục, em thường xử lý thế nào?"
 
-
-
 > **“Trong lập trình, điều gì làm em ‘sướng’ nhất? Điều gì làm bạn ‘bực’ nhất?”**
 
 **Follow-up:**
@@ -128,4 +118,3 @@
   - *Ngày 1:* Đọc doc, chạy Hello World, hiểu nguyên lý cơ bản.
   - *Ngày 2:* Implement vào dự án, chấp nhận code xấu nhưng chạy được.
   - *Ngày 3:* Refactor, test, và quan trọng là: **Báo cáo tiến độ sớm nếu thấy không kịp.**
-
