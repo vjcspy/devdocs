@@ -2,13 +2,13 @@
 
 ## Đánh giá Kỹ năng Tự học & Đam mê (Self-learning & Passion)
 
-> Hãy kể cho anh nghe về một công nghệ hoặc một kỹ thuật mới mà em tự tìm hiểu gần đây nhất?
+> **Hãy kể cho anh nghe về một công nghệ hoặc một kỹ thuật mới mà em tự tìm hiểu gần đây nhất?**
 
 **Các lớp câu hỏi Follow-up để đào sâu:**
 
-- **Level 1 (Nguồn gốc):** "Tại sao em lại chọn học cái đó mà không phải cái khác? Em tiếp cận tài liệu từ nguồn nào (Document chính chủ, Youtube, hay StackOverflow)?"
+- **Level 1 (Nguồn gốc):** "**Tại sao em lại chọn học cái đó mà không phải cái khác?** Em tiếp cận tài liệu từ nguồn nào (Document chính chủ, Youtube, hay StackOverflow)?"
   - *Dấu hiệu tốt:* Đọc document gốc, hiểu bản chất vấn đề, có so sánh với công nghệ cũ.
-- **Level 2 (Quá trình):** "Trong quá trình tự học, em gặp khó khăn gì lớn nhất? Em đã mất bao lâu để vượt qua nó?"
+- **Level 2 (Quá trình):** "**Trong quá trình tự học, em gặp khó khăn gì lớn nhất? Em đã mất bao lâu để vượt qua nó?**"
 - **Level 3 (Ứng dụng - Quan trọng):** "Em đã áp dụng nó vào dự án thực tế nào chưa? Nếu bây giờ cho em làm lại, em có thay đổi cách học hay cách áp dụng không?"
 
 - Bạn bắt đầu từ nguồn nào? Vì sao chọn nguồn đó?
@@ -19,7 +19,7 @@
 
 - Bạn gặp chỗ nào bị kẹt lâu nhất? Bạn gỡ bằng cách nào?
 
-- Nếu bắt đầu lại từ đầu, bạn sẽ học khác đi thế nào?
+- **Nếu bắt đầu lại từ đầu, bạn sẽ học khác đi thế nào?**
 
 **Câu hỏi "bẫy" (Check đam mê):**
 
@@ -27,7 +27,7 @@
 
 
 
-> “Hãy chọn 1 khái niệm bạn từng học mà lúc đầu hiểu sai. Bạn đã phát hiện và sửa thế nào?”
+> **“Hãy chọn 1 khái niệm bạn từng học mà lúc đầu hiểu sai. Bạn đã phát hiện và sửa thế nào?”**
 
 **Follow-up:**
 
@@ -37,7 +37,7 @@
 
 
 
-> “Hãy dạy anh 1 thứ bạn mới học trong 3 phút, theo cách người mới cũng hiểu.”
+> **“Nếu anh yêu cầu em dạy anh 1 kiến thức nào đó trong 3 phút, em sẽ chọn dạy anh kiến thức gì, theo cách người mới cũng hiểu.”**
 
 **Follow-up:**
 
@@ -51,7 +51,7 @@
 
 
 
-> “Em từng làm cái gì ‘vượt yêu cầu’ trong đồ án/đi làm thêm?”
+> **“Em từng làm cái gì ‘vượt yêu cầu’ trong đồ án/đi làm thêm?”**
 
 **Follow-up:**
 
@@ -71,7 +71,7 @@
 
 **Câu hỏi chính:**
 
-> "Hãy kể về một con BUG khó chịu nhất hoặc một vấn đề kỹ thuật hóc búa nhất mà em từng gặp trong quá trình làm đồ án/thực tập."
+> **"Hãy kể về một con BUG khó chịu nhất hoặc một vấn đề kỹ thuật hóc búa nhất mà em từng gặp trong quá trình làm đồ án/thực tập."**
 
 **Các lớp câu hỏi Follow-up để đào sâu:**
 
@@ -98,7 +98,7 @@
 
 
 
-> “Trong lập trình, điều gì làm em ‘sướng’ nhất? Điều gì làm bạn ‘bực’ nhất?”
+> **“Trong lập trình, điều gì làm em ‘sướng’ nhất? Điều gì làm bạn ‘bực’ nhất?”**
 
 **Follow-up:**
 
