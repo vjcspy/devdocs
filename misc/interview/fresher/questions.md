@@ -2,7 +2,7 @@
 
 ## Đánh giá Kỹ năng Tự học & Đam mê (Self-learning & Passion)
 
-> Ngoài các đồ án bắt buộc ở trường, hãy kể cho anh nghe về một công nghệ hoặc một kỹ thuật mới mà em tự tìm hiểu gần đây nhất?
+> Hãy kể cho anh nghe về một công nghệ hoặc một kỹ thuật mới mà em tự tìm hiểu gần đây nhất?
 
 **Các lớp câu hỏi Follow-up để đào sâu:**
 
