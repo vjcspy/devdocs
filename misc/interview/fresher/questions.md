@@ -37,7 +37,7 @@
 
 
 
-> “Hãy dạy mình 1 thứ bạn mới học trong 3 phút, theo cách người mới cũng hiểu.”
+> “Hãy dạy anh 1 thứ bạn mới học trong 3 phút, theo cách người mới cũng hiểu.”
 
 **Follow-up:**
 
@@ -46,6 +46,20 @@
 - Nếu mình hỏi ‘tại sao’ sâu hơn 2 lần, bạn trả lời thế nào?
 
 **Lý do mạnh:** ai hiểu thật sẽ giải thích mạch lạc.
+
+
+
+
+
+> “Em từng làm cái gì ‘vượt yêu cầu’ trong đồ án/đi làm thêm?”
+
+**Follow-up:**
+
+- Động lực lúc đó là gì? Bạn tự đề xuất hay được nhắc?
+- Bạn bỏ thêm bao nhiêu thời gian? Cái bạn nhận lại là gì?
+- Nếu làm lại, bạn có vẫn làm phần đó không?
+
+**Mục tiêu:** đo **initiative** + **khả năng chịu effort**.
 
 
 
@@ -111,14 +125,3 @@
   - *Ngày 2:* Implement vào dự án, chấp nhận code xấu nhưng chạy được.
   - *Ngày 3:* Refactor, test, và quan trọng là: **Báo cáo tiến độ sớm nếu thấy không kịp.**
 
-
-
-> “Bạn từng làm cái gì ‘vượt yêu cầu’ trong đồ án/đi làm thêm?”
-
-**Follow-up:**
-
-- Động lực lúc đó là gì? Bạn tự đề xuất hay được nhắc?
-- Bạn bỏ thêm bao nhiêu thời gian? Cái bạn nhận lại là gì?
-- Nếu làm lại, bạn có vẫn làm phần đó không?
-
-**Mục tiêu:** đo **initiative** + **khả năng chịu effort**.
