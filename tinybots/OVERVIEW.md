@@ -1,7 +1,7 @@
 ## TL;DR
 
 - TinyBots spans telemetry ingest, automation triggers, business-facing Wonkers apps, and shared tooling that keeps contracts aligned.
-- This overview lists all 20 repositories grouped by role with links to their repo-level overviews.
+- This overview lists all 21 repositories grouped by role with links to their repo-level overviews.
 - Use it to spot missing docs and route work to the right codebase quickly.
 
 ## Platform Purpose & Landscape
@@ -19,6 +19,7 @@
 - sensara-adaptor: Sensara telemetry bridge into TinyBots events (devdocs/tinybots/sensara-adaptor/OVERVIEW.md)
 - azi-3-status-check: Status check API and evaluation workflows (devdocs/tinybots/azi-3-status-check/OVERVIEW.md)
 - azi-3-status-check-jobs: Background jobs for status checks and follow-ups (devdocs/tinybots/azi-3-status-check-jobs/OVERVIEW.md)
+- eve: Schedule management service for Tessa robots (devdocs/tinybots/eve/OVERVIEW.md)
 - micro-manager: Robot script lifecycle and execution service (devdocs/tinybots/micro-manager/OVERVIEW.md)
 
 ### Experience & Business Apps
@@ -46,6 +47,7 @@
 
 - Telemetry from Sensara and robots enters sensara-adaptor then megazord-events, persisting events and dispatching triggers to m-o-triggers and status workflows.
 - Status evaluations publish queue messages and database updates consumed by azi-3-status-check-jobs and surfaced through wonkers APIs, GraphQL, and micro-manager script executions.
+- Robot schedules are managed by eve, storing cron-based task definitions in typ-e database and notifying downstream consumers via SQS when schedules change.
 - External notifications from Ecare and ZSP pass through wonkers-ecd to TaaS order services and dashboards using shared schemas and clients.
 - Customer and admin apps query wonkers-api and wonkers-graphql using schemas from tiny-specs, typ-e, and wonkers-db via shared clients and middleware.
 
@@ -62,6 +64,7 @@ Repository Coverage Table
 | --- | --- | --- | --- |
 | azi-3-status-check | Automation Core | devdocs/tinybots/azi-3-status-check/OVERVIEW.md | Present |
 | azi-3-status-check-jobs | Automation Core | devdocs/tinybots/azi-3-status-check-jobs/OVERVIEW.md | Present |
+| eve | Automation Core | devdocs/tinybots/eve/OVERVIEW.md | Present |
 | m-o-triggers | Automation Core | devdocs/tinybots/m-o-triggers/OVERVIEW.md | Present |
 | megazord-events | Automation Core | devdocs/tinybots/megazord-events/OVERVIEW.md | Present |
 | micro-manager | Automation Core | devdocs/tinybots/micro-manager/OVERVIEW.md | Present |
