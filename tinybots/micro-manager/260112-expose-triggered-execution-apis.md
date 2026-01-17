@@ -1,5 +1,12 @@
 # 📋 [260112] - Expose Triggered Script Execution APIs for Frontend
 
+## Implementation Status
+
+| API | Status | Date |
+|-----|--------|------|
+| API 1: List Triggered Executions | ✅ **DONE** | 2026-01-15 |
+| API 2: Get Execution Detail | ⏳ PENDING | - |
+
 ## References
 
 - **Global Standard**: `devdocs/tinybots/OVERVIEW.md`
@@ -10,6 +17,7 @@
   - `devdocs/tinybots/m-o-triggers/OVERVIEW.md` - Trigger scheduling
 - **Key Files in micro-manager**:
   - `src/controllers/ScriptUserController.ts` - Existing user-facing execution endpoint
+  - `src/controllers/ExecutionUserController.ts` - **NEW** User-facing triggered execution endpoint
   - `src/repository/ScriptExecutionRepository.ts` - Execution data access
   - `src/repository/ScriptRepository.ts` - Script metadata access
   - `src/services/ScriptExecutionService.ts` - Execution business logic
@@ -20,8 +28,9 @@
 **Current State:**
 
 - ✅ Trigger-based script executions are being stored (implemented in `251206-store-trigger-script.md`)
-- ❌ No API to expose triggered executions to frontend
-- ❌ Frontend cannot display triggered scripts in schedule view
+- ✅ API 1 (List) to expose triggered executions to frontend - **IMPLEMENTED**
+- ⏳ API 2 (Detail) for execution details - **PENDING**
+- ⏳ Frontend integration - **PENDING**
 
 **Business Problem:**
 
@@ -138,18 +147,27 @@ Expose read APIs for frontend to display trigger-based script executions in the 
 │ created_at         │ TIMESTAMP DEFAULT CURRENT_TIMESTAMP                    │
 └────────────────────┴─────────────────────────────────────────────────────────┘
 
--- event_trigger_setting (trigger configuration with name)
+-- event_trigger_setting (trigger configuration)
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ event_trigger_setting                                                         │
 ├────────────────────┬─────────────────────────────────────────────────────────┤
 │ id                 │ BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY              │
-│ name               │ VARCHAR(255) NOT NULL  ← This is the trigger name!     │
 │ robot_id           │ INT UNSIGNED NOT NULL → robot_account.id               │
 │ script_reference_id│ BIGINT UNSIGNED NOT NULL → script_reference.id         │
-│ event_type         │ VARCHAR(64) NOT NULL                                   │
+│ event_type_id      │ BIGINT UNSIGNED NOT NULL → event_schema.id             │
 │ enabled            │ TINYINT(1) NOT NULL DEFAULT 1                          │
 │ created_at         │ TIMESTAMP DEFAULT CURRENT_TIMESTAMP                    │
 │ updated_at         │ TIMESTAMP                                              │
+└────────────────────┴─────────────────────────────────────────────────────────┘
+
+-- event_schema (event type definitions with name)
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ event_schema                                                                  │
+├────────────────────┬─────────────────────────────────────────────────────────┤
+│ id                 │ BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY              │
+│ name               │ VARCHAR(255) NOT NULL  ← This is the trigger name!     │
+│ event_source       │ VARCHAR(255) NOT NULL                                  │
+│ created_at         │ TIMESTAMP DEFAULT CURRENT_TIMESTAMP                    │
 └────────────────────┴─────────────────────────────────────────────────────────┘
 
 -- script_step_execution (step-level execution data)
@@ -450,19 +468,20 @@ interface ReportData {
 
 ### Phase 1: Repository Layer
 
-**Priority**: High | **Effort**: 0.5 day | **Dependencies**: None
+**Priority**: High | **Effort**: 0.5 day | **Dependencies**: None | **Status**: 🟡 Partial
 
 **Tasks:**
 
 1. **Add New Repository Methods**
    - File: `micro-manager/src/repository/ScriptExecutionRepository.ts`
-   - Add `getTriggeredExecutionsForSchedule()` method (list with script name) - **Triggered only**
-   - Add `getExecutionDetail()` method (execution + steps) - **Generic for both types**
+   - ✅ Add `getTriggeredExecutionsForSchedule()` method (list with script name) - **DONE**
+   - ⏳ Add `getExecutionDetail()` method (execution + steps) - **PENDING**
 
 **SQL Queries:**
 
 ```sql
 -- getTriggeredExecutionsForSchedule (List API - triggered only)
+-- ✅ IMPLEMENTED - Uses event_schema.name for trigger name
 SELECT 
   se.id AS triggered_execution_id,
   et.executed_at AS executed_at,    -- Use event_trigger.executed_at (actual execution time)
@@ -473,13 +492,14 @@ SELECT
   sc.name AS script_category,       -- Category from script_category table
   -- trigger info
   se.triggering_event_id,
-  ets.name AS trigger_name
+  es.name AS trigger_name           -- Uses event_schema.name (via event_trigger_setting.event_type_id)
 FROM script_execution se
 JOIN script_version sv ON se.script_version_id = sv.id
 JOIN script_category sc ON sv.script_category_id = sc.id  -- JOIN to get category
 JOIN script_reference sr ON se.script_reference_id = sr.id
 JOIN event_trigger et ON se.triggering_event_id = et.id
 JOIN event_trigger_setting ets ON et.setting_id = ets.id
+JOIN event_schema es ON ets.event_type_id = es.id         -- JOIN to get trigger name
 WHERE sr.robot_id = ?
   AND se.triggering_event_id IS NOT NULL
   AND et.executed_at >= ?           -- Filter by actual execution time
@@ -488,6 +508,7 @@ ORDER BY et.executed_at DESC
 LIMIT ?
 
 -- getExecutionDetail (Detail API - GENERIC for both scheduled and triggered)
+-- ⏳ NOT YET IMPLEMENTED
 SELECT 
   se.id,
   -- execution type discriminator
@@ -510,13 +531,14 @@ SELECT
   se.planned,
   -- trigger info (NULL for scheduled)
   se.triggering_event_id,
-  ets.name AS trigger_name
+  es.name AS trigger_name           -- Uses event_schema.name (via event_trigger_setting.event_type_id)
 FROM script_execution se
 JOIN script_version sv ON se.script_version_id = sv.id
 JOIN script_category sc ON sv.script_category_id = sc.id  -- JOIN to get category
 JOIN script_reference sr ON se.script_reference_id = sr.id
 LEFT JOIN event_trigger et ON se.triggering_event_id = et.id
 LEFT JOIN event_trigger_setting ets ON et.setting_id = ets.id
+LEFT JOIN event_schema es ON ets.event_type_id = es.id    -- JOIN to get trigger name
 WHERE se.id = ?
   AND sr.robot_id = ?
 
@@ -534,14 +556,14 @@ WHERE se.id = ?
 
 ### Phase 2: Service Layer
 
-**Priority**: High | **Effort**: 0.5 day | **Dependencies**: Phase 1
+**Priority**: High | **Effort**: 0.5 day | **Dependencies**: Phase 1 | **Status**: 🟡 Partial
 
 **Tasks:**
 
 1. **Add Service Methods**
    - File: `micro-manager/src/services/ScriptExecutionService.ts`
-   - Add `getTriggeredExecutionsForSchedule()` method (triggered list only)
-   - Add `getExecutionDetail()` method (generic - both types)
+   - ✅ Add `getTriggeredExecutionsForSchedule()` method (triggered list only) - **DONE**
+   - ⏳ Add `getExecutionDetail()` method (generic - both types) - **PENDING**
 
 ```typescript
 // ScriptExecutionService.ts
@@ -621,23 +643,25 @@ public async getExecutionDetail({
 
 ### Phase 3: DTOs & Validation
 
-**Priority**: High | **Effort**: 0.5 day | **Dependencies**: None
+**Priority**: High | **Effort**: 0.5 day | **Dependencies**: None | **Status**: 🟡 Partial
 
 **Tasks:**
 
 1. **Create New DTOs**
    - File: `micro-manager/src/schemas/body/TriggeredExecution.ts` (MODIFY existing)
-   - Define `TriggeredExecutionSummary` class (for list API)
-   - Define `ExecutionDetailResponse` class (GENERIC for detail API)
-   - Define query schema for from/to/limit
+   - ✅ Define `TriggeredExecutionSummary` interface (for list API) - **DONE**
+   - ✅ Define `TriggeredExecutionListResponse` interface - **DONE**
+   - ✅ Define `ScriptInfo`, `TriggerInfo` interfaces - **DONE**
+   - ✅ Define `TriggeredExecutionRow` interface (DB mapping) - **DONE**
+   - ⏳ Define `ExecutionDetailResponse` class (GENERIC for detail API) - **PENDING**
 
 2. **Create Param Schema**
    - File: `micro-manager/src/schemas/params/robotIdExecutionIdSchema.ts` (NEW)
-   - Define Joi schema for robotId + executionId params (generic)
+   - ⏳ Define Joi schema for robotId + executionId params (generic) - **PENDING** (for Detail API)
 
 3. **Create Query Schema**
    - File: `micro-manager/src/schemas/query/triggeredExecutionQuerySchema.ts` (NEW)
-   - Define Joi schema for from/to/limit query params
+   - ✅ Define Joi schema for from/to/limit query params - **DONE**
 
 ```typescript
 // schemas/body/TriggeredExecution.ts
@@ -765,14 +789,14 @@ export const triggeredExecutionQuerySchema = Joi.object({
 
 ### Phase 4: Controller & Routes
 
-**Priority**: High | **Effort**: 1 day | **Dependencies**: Phase 2, Phase 3
+**Priority**: High | **Effort**: 1 day | **Dependencies**: Phase 2, Phase 3 | **Status**: 🟡 Partial
 
 **Tasks:**
 
 1. **Create New Controller**
    - File: `micro-manager/src/controllers/ExecutionUserController.ts` (NEW)
-   - Implement `getTriggeredExecutions()` handler (list - triggered only)
-   - Implement `getExecutionDetail()` handler (detail - GENERIC)
+   - ✅ Implement `getTriggeredExecutions()` handler (list - triggered only) - **DONE**
+   - ⏳ Implement `getExecutionDetail()` handler (detail - GENERIC) - **PENDING**
 
 ```typescript
 // controllers/ExecutionUserController.ts
@@ -847,7 +871,8 @@ export class ExecutionUserController {
 
 2. **Register Routes**
    - File: `micro-manager/src/routes/routes.ts`
-   - Add new GET endpoints
+   - ✅ API 1 route registered - **DONE**
+   - ⏳ API 2 route - **PENDING**
 
 ```typescript
 // routes/routes.ts
@@ -860,7 +885,7 @@ import { robotIdExecutionIdSchema } from '../schemas/params/robotIdExecutionIdSc
 const executionUserController: ExecutionUserController = 
   container.resolve('executionUserController')
 
-// API 1: List triggered executions (triggered only - for schedule view)
+// ✅ API 1: List triggered executions (triggered only - for schedule view) - DONE
 app.get('/v6/scripts/user/robots/:robotId/executions/triggered',
   joiValidator.headers(kongHeaderSchema),
   joiValidator.params(robotIdSchema),
@@ -868,7 +893,7 @@ app.get('/v6/scripts/user/robots/:robotId/executions/triggered',
   checkUserAccess,
   executionUserController.getTriggeredExecutions)
 
-// API 2: Get execution detail (GENERIC - works for both scheduled and triggered)
+// ⏳ API 2: Get execution detail (GENERIC - works for both scheduled and triggered) - PENDING
 app.get('/v6/scripts/user/robots/:robotId/executions/:executionId',
   joiValidator.headers(kongHeaderSchema),
   joiValidator.params(robotIdExecutionIdSchema),
@@ -878,7 +903,7 @@ app.get('/v6/scripts/user/robots/:robotId/executions/:executionId',
 
 3. **Register in DI Container**
    - File: `micro-manager/src/buildContainer.ts`
-   - Add `executionUserController`
+   - ✅ Add `executionUserController` - **DONE**
 
 **Acceptance Criteria:**
 - ✅ List endpoint returns 200 with triggered executions only
@@ -911,27 +936,32 @@ app.get('/v6/scripts/user/robots/:robotId/executions/:executionId',
 
 ### Phase 6: Testing
 
-**Priority**: High | **Effort**: 1 day | **Dependencies**: Phase 4
+**Priority**: High | **Effort**: 1 day | **Dependencies**: Phase 4 | **Status**: 🟡 Partial
 
 **Tasks:**
 
 1. **Unit Tests**
    - File: `micro-manager/test/services/ScriptExecutionService.UT.spec.ts`
-   - Test `getTriggeredExecutionsForSchedule()`
-   - Test `getTriggeredExecutionDetail()`
+   - ✅ Test `getTriggeredExecutionsForSchedule()` - **DONE** (5 test cases)
+   - ⏳ Test `getExecutionDetail()` - **PENDING**
 
 2. **Integration Tests**
-   - File: `micro-manager/test/IT/repositoryIT/ScriptExecutionRepository.triggered.read.IT.spec.ts` (NEW)
-   - Test repository queries with real database
-   - Test filtering by date range
-   - Test filtering only triggered (not scheduled)
+   - File: `micro-manager/test/IT/repositoryIT/ScriptExecutionRepository.triggered.IT.spec.ts`
+   - ✅ Test `getTriggeredExecutionsForSchedule()` - **DONE**
+   - Tests include: empty result, date filtering, robot filtering, limit, ordering
 
 3. **Controller Tests**
-   - File: `micro-manager/test/controllers/TriggeredExecutionUserController.IT.spec.ts` (NEW)
-   - Test 200 responses
-   - Test 404 for not found
-   - Test 400 for invalid params
-   - Test 403 for unauthorized access
+   - File: `micro-manager/test/controllers/ExecutionUserController.IT.spec.ts` (NEW)
+   - ✅ API 1 tests - **DONE** (10 test cases)
+     - 200 with empty array
+     - 400 for missing from/to params
+     - 400 for invalid date format
+     - 400 for limit out of range
+     - 400 for missing Kong headers
+     - 400 for invalid robotId
+     - 401 for wrong consumer username
+     - 403 for unauthorized access
+   - ⏳ API 2 tests - **PENDING**
 
 **Test Scenarios:**
 
@@ -967,40 +997,78 @@ app.get('/v6/scripts/user/robots/:robotId/executions/:executionId',
 
 ## 📊 Summary
 
-### Files to Create
+### Files Created (API 1 - List)
+
+| File | Purpose | Status |
+|------|---------|--------|
+| `src/controllers/ExecutionUserController.ts` | New controller | ✅ Created |
+| `src/schemas/query/triggeredExecutionQuerySchema.ts` | Query param validation | ✅ Created |
+| `src/schemas/body/TriggeredExecution.ts` | DTOs for list API | ✅ Created |
+| `test/controllers/ExecutionUserController.IT.spec.ts` | Controller IT tests | ✅ Created |
+| `typ-e/src/main/resources/db/migration/V101__grant_micro_manager_event_tables.sql` | DB permissions | ✅ Created |
+
+### Files Modified (API 1 - List)
+
+| File | Changes | Status |
+|------|---------|--------|
+| `src/repository/ScriptExecutionRepository.ts` | Added `getTriggeredExecutionsForSchedule()` | ✅ Done |
+| `src/services/ScriptExecutionService.ts` | Added `getTriggeredExecutionsForSchedule()` | ✅ Done |
+| `src/routes/routes.ts` | Registered List API route | ✅ Done |
+| `src/buildContainer.ts` | Registered `executionUserController` | ✅ Done |
+| `devtools/docker-compose.yaml` | Mounted V101 migration | ✅ Done |
+
+### Files to Create (API 2 - Detail) - PENDING
 
 | File | Purpose |
 |------|---------|
-| `src/controllers/ExecutionUserController.ts` | New controller (generic execution APIs) |
-| `src/schemas/query/triggeredExecutionQuerySchema.ts` | Query param validation (list API) |
 | `src/schemas/params/robotIdExecutionIdSchema.ts` | Path param validation (generic) |
-| `test/controllers/ExecutionUserController.IT.spec.ts` | Controller tests |
-| `test/IT/repositoryIT/ScriptExecutionRepository.execution.read.IT.spec.ts` | Repository tests |
 | `tiny-specs/specs/local/paths/micro-manager/v6/executions.yaml` | OpenAPI paths |
 | `tiny-specs/specs/local/components/micro-manager/v6/execution-schemas.yaml` | OpenAPI schemas |
 
-### Files to Modify
+### Files to Modify (API 2 - Detail) - PENDING
 
 | File | Changes |
 |------|---------|
 | `src/schemas/body/TriggeredExecution.ts` | Add `ExecutionDetailResponse`, `ScheduleInfo` DTOs |
-| `src/repository/ScriptExecutionRepository.ts` | Add `getExecutionDetail()` (generic) + `getTriggeredExecutionsForSchedule()` |
-| `src/services/ScriptExecutionService.ts` | Add `getExecutionDetail()` (generic) + `getTriggeredExecutionsForSchedule()` |
-| `src/routes/routes.ts` | Register 2 new routes (list + generic detail) |
-| `src/buildContainer.ts` | Register `executionUserController` |
+| `src/repository/ScriptExecutionRepository.ts` | Add `getExecutionDetail()` (generic) |
+| `src/services/ScriptExecutionService.ts` | Add `getExecutionDetail()` (generic) |
+| `src/routes/routes.ts` | Register Detail API route |
+| `src/controllers/ExecutionUserController.ts` | Add `getExecutionDetail()` handler |
 | `micro-manager/docs/micro-manager.yaml` | Add API documentation |
+
+### Database Migration Required
+
+**File**: `typ-e/src/main/resources/db/migration/V101__grant_micro_manager_event_tables.sql`
+
+The `micro-manager-rw` database user needs SELECT permission on additional tables for the List API query:
+
+```sql
+-- Grant SELECT permission to micro-manager-rw on event_trigger_setting
+GRANT SELECT ON `tinybots`.`event_trigger_setting` TO 'micro-manager-rw'@'10.0.0.0/255.0.0.0';
+GRANT SELECT ON `tinybots`.`event_trigger_setting` TO 'micro-manager-rw'@'172.16.0.0/255.240.0.0';
+GRANT SELECT ON `tinybots`.`event_trigger_setting` TO 'micro-manager-rw'@'192.168.0.0/255.255.0.0';
+
+-- Grant SELECT permission to micro-manager-rw on event_schema
+GRANT SELECT ON `tinybots`.`event_schema` TO 'micro-manager-rw'@'10.0.0.0/255.0.0.0';
+GRANT SELECT ON `tinybots`.`event_schema` TO 'micro-manager-rw'@'172.16.0.0/255.240.0.0';
+GRANT SELECT ON `tinybots`.`event_schema` TO 'micro-manager-rw'@'192.168.0.0/255.255.0.0';
+```
+
+**Note**: For local Docker testing, the migration file is mounted in `devtools/docker-compose.yaml`.
 
 ### Effort Estimation
 
-| Phase | Effort |
-|-------|--------|
-| Phase 1: Repository | 0.5 day |
-| Phase 2: Service | 0.5 day |
-| Phase 3: DTOs | 0.5 day |
-| Phase 4: Controller & Routes | 1 day |
-| Phase 5: API Documentation | 0.5 day |
-| Phase 6: Testing | 1 day |
-| **Total** | **4 days** |
+| Phase | Effort | Status |
+|-------|--------|--------|
+| Phase 1: Repository | 0.5 day | 🟡 Partial |
+| Phase 2: Service | 0.5 day | 🟡 Partial |
+| Phase 3: DTOs | 0.5 day | 🟡 Partial |
+| Phase 4: Controller & Routes | 1 day | 🟡 Partial |
+| Phase 5: API Documentation | 0.5 day | ⏳ Pending |
+| Phase 6: Testing | 1 day | 🟡 Partial |
+| **Total** | **4 days** | |
+
+**Actual Progress (API 1 only)**: ~1.5 days
 
 ### Success Metrics
 
@@ -1027,6 +1095,22 @@ app.get('/v6/scripts/user/robots/:robotId/executions/:executionId',
   - Still works but new generic API is recommended for new integrations
 
 ## 📝 Design Decision Notes
+
+### Trigger Name Source (Implementation Note)
+
+**Original assumption**: `event_trigger_setting.name` contains the trigger name.
+
+**Actual implementation**: The `event_trigger_setting` table does NOT have a `name` column. Instead:
+- `event_trigger_setting.event_type_id` references `event_schema.id`
+- `event_schema.name` contains the trigger/event type name (e.g., "WAKEUP_EVENT", "FALL_ALARM")
+
+**SQL Join Path**:
+```
+script_execution 
+  → event_trigger (via triggering_event_id)
+  → event_trigger_setting (via setting_id)
+  → event_schema (via event_type_id) → name
+```
 
 ### Why Generic Detail API?
 
