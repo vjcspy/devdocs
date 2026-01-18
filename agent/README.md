@@ -27,6 +27,43 @@ Có 2 loại là project command và global command. Để thuận tiện, chún
 
 ### Skills
 
+> A skill is a portable, version-controlled package that teaches agents how to perform domain-specific tasks.
+>
+> Là một phiên bản nâng cấp hơn của command, giống như là kĩ năng, kinh nghiệm để thực hiện một việc gì đó(có thể là kinh nghiệm viết code, guide để sử dụng những công cụ script có sẵn...)
+>
+> Cũng được sử dụng bằng cách dùng `/`
+
+Cũng để thuận tiện chúng ta có script để copy ra `~/.cursor/skills/`
+
+```
+.cursor/
+└── skills/
+    └── my-skill/
+        └── SKILL.md
+```
+
+#### SKILL.md format
+
+```xml
+---
+name: my-skill
+description: Short description of what this skill does and when to use it.
+---
+# My Skill
+Detailed instructions for the agent.
+## When to Use
+- Use this skill when...
+- This skill is helpful for...
+## Instructions
+- Step-by-step guidance for the agent
+- Domain-specific conventions
+- Best practices and patterns
+```
+
+Xem chi tiết hơn cách viết skill ở: https://code.claude.com/docs/en/skills#write-skill-md
+
+Example: https://github.com/vjcspy/agent-skills/tree/main/skills/react-best-practices
+
 ### Templates
 
 AI sẽ render theo các template mà chúng ta mong muốn
