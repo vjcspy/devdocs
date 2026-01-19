@@ -16,7 +16,7 @@
 > - For event triggers, use internal endpoints in the tiny internal services to be created by Kai (sample of the current external endpoints)
 > - Use the residentId to get the robotId
 
-**API Specification (từ hình ảnh):**
+**API Specification (from image):**
 
 **Resident Endpoints:**
 | Method | Path | Description |
@@ -36,32 +36,32 @@
 
 ## 🎯 Objective
 
-Review implementation trên branch `feature/PROD-437-sensara-endpoints`, so sánh với requirements, xác định gaps và tạo plan cập nhật để align với specification.
+Review implementation on branch `feature/PROD-437-sensara-endpoints`, compare with requirements, identify gaps, and create an update plan to align with the specification.
 
 ### ⚠️ Key Considerations
 
-1. **Path naming convention** phải match với spec (`/v1/ext/sensara/*`)
-2. **Authentication** cần ignore theo yêu cầu (hiện tại một số endpoints vẫn có auth)
-3. **Missing endpoints** cần được implement
-4. **Code quality issues** cần được fix trước khi merge
-5. **Backward compatibility** cần được maintain trong quá trình migration
+1. **Path naming convention** must match the spec (`/v1/ext/sensara/*`)
+2. **Authentication** needs to be ignored as requested (currently some endpoints still have auth)
+3. **Missing endpoints** need to be implemented
+4. **Code quality issues** need to be fixed before merge
+5. **Backward compatibility** needs to be maintained during migration
 
 ---
 
-## 📊 Phần 1: Analysis - Những Gì Đã Implement
+## 📊 Part 1: Analysis - What Has Been Implemented
 
 ### 1.1 Commits Overview
 
-Branch có **27 commits** với các task chính:
+The branch has **27 commits** with the following main tasks:
 - PROD-474: Create GET endpoint to get all residents
 - PROD-506: Create POST trigger endpoint
 - PROD-507: Create GET trigger endpoint
 - PROD-508: Create DELETE trigger endpoint
 - PROD-640: Add authentication for organisations
 
-### 1.2 Endpoints Đã Implement
+### 1.2 Implemented Endpoints
 
-| Endpoint | Method | Mô tả | Auth |
+| Endpoint | Method | Description | Auth |
 |----------|--------|-------|------|
 | `/v1/sensara/residents` | PUT | Register resident↔robot + hearableLocations | ✅ Required |
 | `/v1/sensara/residents/{residentId}` | DELETE | Delete resident mapping | ✅ Required |
@@ -129,14 +129,14 @@ Response
 
 ---
 
-## 📊 Phần 2: So Sánh Với Requirements - Gaps Analysis
+## 📊 Part 2: Comparison with Requirements - Gaps Analysis
 
 ### 2.1 Path Naming Gaps
 
 | Spec | Implementation | Gap |
 |------|----------------|-----|
 | `/v1/ext/sensara/residents` | `/v1/sensara/residents` | ❌ Missing `/ext` prefix |
-| `/v1/ext/sensara/residents/{residentId}/events/subscriptions/triggers` | `/internal/v1/events/residents/{residentId}/subscriptions/triggers` | ❌ Path structure khác hoàn toàn |
+| `/v1/ext/sensara/residents/{residentId}/events/subscriptions/triggers` | `/internal/v1/events/residents/{residentId}/subscriptions/triggers` | ❌ Path structure is completely different |
 
 ### 2.2 Missing Endpoints
 
@@ -149,15 +149,15 @@ Response
 
 | Requirement | Implementation | Gap |
 |-------------|----------------|-----|
-| "Ignore authentication for now" | PUT/DELETE residents require `SENSARA_RESIDENT_WRITE_ALL` permission | ❌ Auth vẫn enabled cho write operations |
-| | GET residents không có auth | ✅ OK |
-| | Trigger endpoints không có auth | ✅ OK |
+| "Ignore authentication for now" | PUT/DELETE residents require `SENSARA_RESIDENT_WRITE_ALL` permission | ❌ Auth is still enabled for write operations |
+| | GET residents has no auth | ✅ OK |
+| | Trigger endpoints have no auth | ✅ OK |
 
 ### 2.4 Functional Gaps
 
 | Requirement | Implementation | Gap |
 |-------------|----------------|-----|
-| "Resident endpoints from database directly" | GET-all depends on external services (DashboardRobotService, RobotAccountService) | ⚠️ Không hoàn toàn DB-only, sẽ fail nếu services down |
+| "Resident endpoints from database directly" | GET-all depends on external services (DashboardRobotService, RobotAccountService) | ⚠️ Not completely DB-only; will fail if services are down |
 | "Use residentId to get robotId" | ✅ Implemented via `getRobotIdByResidentId()` | None |
 
 ### 2.5 Code Quality Issues
@@ -172,9 +172,9 @@ Response
 
 ---
 
-## 📊 Phần 3: Kết Luận & Đề Xuất Thay Đổi
+## 📊 Part 3: Conclusion & Proposed Changes
 
-### 3.1 Must Fix (Bắt buộc trước khi merge)
+### 3.1 Must Fix (Mandatory before merge)
 
 #### 3.1.1 Remove `describe.only`
 
@@ -228,37 +228,37 @@ res.status(500).send({ message: 'Invalid subscriptionId' })
 res.status(400).send({ message: 'Invalid subscriptionId' })
 ```
 
-### 3.2 Should Fix (Cần clarify với stakeholder)
+### 3.2 Should Fix (Need clarification from stakeholder)
 
-#### 3.2.1 Path Naming - Cần quyết định
+#### 3.2.1 Path Naming - Decision needed
 
-**Option A:** Đổi sang `/v1/ext/sensara/*` theo spec
-- Pros: Match với spec, consistent với external API convention
-- Cons: Breaking change nếu có client đang dùng
+**Option A:** Change to `/v1/ext/sensara/*` according to spec
+- Pros: Matches spec, consistent with external API convention
+- Cons: Breaking change if clients are already using it
 
-**Option B:** Giữ `/v1/sensara/*` hiện tại
-- Pros: Không breaking change
-- Cons: Không match spec
+**Option B:** Keep current `/v1/sensara/*`
+- Pros: No breaking change
+- Cons: Does not match spec
 
-**Recommendation:** Implement cả hai paths, deprecate `/v1/sensara/*` sau khi migrate xong
+**Recommendation:** Implement both paths, deprecate `/v1/sensara/*` after migration is complete
 
-#### 3.2.2 Trigger Endpoints Path - Cần quyết định
+#### 3.2.2 Trigger Endpoints Path - Decision needed
 
-**Spec yêu cầu:** `/v1/ext/sensara/residents/{residentId}/events/subscriptions/triggers`
-**Hiện tại:** `/internal/v1/events/residents/{residentId}/subscriptions/triggers`
+**Spec requires:** `/v1/ext/sensara/residents/{residentId}/events/subscriptions/triggers`
+**Current:** `/internal/v1/events/residents/{residentId}/subscriptions/triggers`
 
-**Câu hỏi cần clarify:**
-1. Trigger endpoints có cần expose external không? (hiện là internal)
-2. Nếu expose external, có cần auth không?
+**Questions to clarify:**
+1. Do trigger endpoints need to be exposed externally? (currently internal)
+2. If exposed externally, is auth required?
 
-#### 3.2.3 Authentication - Cần quyết định
+#### 3.2.3 Authentication - Decision needed
 
-**Câu hỏi:** "Ignore authentication" có nghĩa là:
-- A) Remove auth hoàn toàn? (risky for security)
-- B) Add feature flag để toggle? (recommended)
-- C) Chỉ áp dụng cho development/testing?
+**Question:** What does "Ignore authentication" specifically mean?
+- A) Remove auth completely? (risky for security)
+- B) Add feature flag to toggle? (recommended)
+- C) Only apply to development/testing?
 
-**Recommendation:** Implement feature flag `features.ignoreAuth` trong config
+**Recommendation:** Implement feature flag `features.ignoreAuth` in config
 
 ### 3.3 Missing Endpoints - Implementation Needed
 
@@ -363,7 +363,7 @@ src/
 ├── repository/
 │   └── ResidentRepository.ts                 # 🔄 Add update hearable locations
 └── service/
-    └── ResidentService.ts                    # 🔄 Add methods + fix logging + fallback
+     └── ResidentService.ts                    # 🔄 Add methods + fix logging + fallback
 
 config/
 ├── default.json                              # 🔄 Add features.ignoreAuth
@@ -378,7 +378,7 @@ test/
 
 ## 📊 Summary of Results
 
-> Chưa thực hiện - sẽ cập nhật sau khi implementation hoàn tất
+> Not executed - will be updated after implementation is complete
 
 ### ✅ Completed Achievements
 
@@ -390,14 +390,14 @@ _Pending implementation_
 
 ### ⚠️ Issues/Clarifications Needed
 
-- [ ] **Q1:** Confirm path naming: `/v1/ext/sensara/*` hay `/v1/sensara/*`?
-- [ ] **Q2:** Trigger endpoints expose external hay giữ internal?
-- [ ] **Q3:** "Ignore authentication" có nghĩa cụ thể là gì? Feature flag hay remove hoàn toàn?
-- [ ] **Q4:** Soft delete → Hard delete change có intentional không? Có cần rollback?
-- [ ] **Q5:** GET-all có bắt buộc phải có `x-relation-id` header không? Spec không mention này
+- [ ] **Q1:** Confirm path naming: `/v1/ext/sensara/*` or `/v1/sensara/*`?
+- [ ] **Q2:** Do trigger endpoints need to be exposed externally? (currently internal)
+- [ ] **Q3:** What does "Ignore authentication" specifically mean? Feature flag or remove completely?
+- [ ] **Q4:** Is the Soft delete → Hard delete change intentional? Is rollback needed?
+- [ ] **Q5:** Is the `x-relation-id` header mandatory for GET-all? Spec does not mention this
 
 ### 📝 Notes
 
-- Branch đã implement phần lớn logic đúng (residentId → robotId mapping)
-- Test coverage khá tốt nhưng có issue với `.only`
-- Cần coordinate với team phát triển `tiny-internal-services` nếu có thay đổi EventService contract
+- Branch has implemented most logic correctly (residentId → robotId mapping)
+- Test coverage is quite good but has an issue with `.only`
+- Need to coordinate with the `tiny-internal-services` development team if there are changes to EventService contract

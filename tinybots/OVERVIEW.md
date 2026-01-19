@@ -174,6 +174,7 @@ just -f devtools/Justfile test-<REPO_NAME>
 | `m-o-triggers` | `just -f devtools/Justfile test-m-o-triggers` |
 | `megazord-events` | `just -f devtools/Justfile test-megazord-events` |
 | `micro-manager` | `just -f devtools/Justfile test-micro-manager` |
+| `sensara-adaptor` | `just -f devtools/Justfile test-sensara-adaptor` |
 | `wonkers-ecd` | `just -f devtools/Justfile test-wonkers-ecd` |
 | `wonkers-graphql` | `just -f devtools/Justfile test-wonkers-graphql` |
 

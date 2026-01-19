@@ -3,7 +3,7 @@
 ## Role & Objective
 
 Act as a **Senior Polyglot Software Architect** and **Technical Writer**.
-Your goal is to generate or update the "State of the Repo" Onboarding Document (Context Overview). 
+Your goal is to generate or update the "State of the Repo" Onboarding Document (Context Overview).
 This document serves as the primary context source for other AI Agents or Developers working on this repository.
 
 **Input Variables:**
@@ -16,17 +16,17 @@ This document serves as the primary context source for other AI Agents or Develo
 
 **Action:** Verify execution environment constraints before scanning code.
 
-1.  **Get Current Context:**
+1. **Get Current Context:**
     - Current Branch: Execute `git branch --show-current` -> Store as `{CURRENT_BRANCH}`.
     - Current Hash: Execute `git log -1 --format="%h"` -> Store as `{CURRENT_HASH}`.
     - Current Date: Execute `git log -1 --format="%cd"` -> Store as `{CURRENT_DATE}`.
 
-2.  **Branch Allow-list Check:**
+2. **Branch Allow-list Check:**
     - IF `{CURRENT_BRANCH}` is NOT `develop` OR `master`:
       - **STOP IMMEDIATELY.**
       - Output: "⚠️ **Aborted:** Documentation can only be generated from 'develop' or 'master'. Current branch is '{CURRENT_BRANCH}'."
 
-3.  **Existing File Consistency Check:**
+3. **Existing File Consistency Check:**
     - Check if `{TARGET_PATH}` exists.
     - **Scenario A (File Exists):**
       - Read the file content. Look for the metadata line: `> **Branch:** [Old_Branch_Name]`.
@@ -42,10 +42,10 @@ This document serves as the primary context source for other AI Agents or Develo
 
 **Action:** Determine if an update is strictly necessary based on Git history.
 
-1.  **Parse Existing Metadata (If file exists):**
+1. **Parse Existing Metadata (If file exists):**
     - Extract `> **Last Commit:** [Old_Hash]` from `{TARGET_PATH}`.
 
-2.  **Compare Hashes:**
+2. **Compare Hashes:**
     - IF `[Old_Hash]` == `{CURRENT_HASH}`:
       - **STOP.** Output: "✅ Documentation is up to date. No changes detected."
     - IF `[Old_Hash]` != `{CURRENT_HASH}`:
@@ -59,24 +59,24 @@ This document serves as the primary context source for other AI Agents or Develo
 
 **Action:** Scan the codebase to identify architectural patterns. Auto-detect the language (Java/Node/Python/etc.) to use correct terminology, but map them to the following universal concepts:
 
-1.  **Project Structure:**
+1. **Project Structure:**
     - Map the directory tree. Identify where logic, configs, and tests live.
 
-2.  **Public Surface (Entry Points):**
+2. **Public Surface (Entry Points):**
     - *For API Repos:* Identify Controllers, Route Handlers, gRPC definitions, or GraphQL Resolvers.
     - *For CLI/Scripts:* Identify main execution entry points and arguments.
     - *For Workers:* Identify Event Listeners (Kafka/RabbitMQ consumers) or Cron jobs.
 
-3.  **Core Services & Domain Logic:**
+3. **Core Services & Domain Logic:**
     - Identify the "How". Where is the business logic isolated? (e.g., Service classes in Java/NestJS, Use Cases in Clean Arch, utils/logic folders in Python).
     - Map data flow: Entry Point -> Service -> Data Access.
 
-4.  **External Dependencies (Crucial):**
+4. **External Dependencies (Crucial):**
     - **Scan imports and config files (package.json, pom.xml, requirements.txt, .env.example)**.
     - List ALL external systems the code communicates with:
       - Databases (Postgres, Mongo, Redis).
       - Message Brokers (SQS, Kafka, RabbitMQ).
-      - External APIs (3rd party vendors, other internal microservices).
+      - Downsteam APIs(External APIs like: 3rd party vendors, other internal microservices).
 
 ---
 
@@ -85,7 +85,7 @@ This document serves as the primary context source for other AI Agents or Develo
 **Action:** Overwrite `{TARGET_PATH}` with the content below.
 **Constraint:** DO NOT use tables. Use Hierarchical Headings (H2, H3, H4) and Bullet points.
 
-### Output Template:
+### Output Template
 
 ```markdown
 ## Metadata Header

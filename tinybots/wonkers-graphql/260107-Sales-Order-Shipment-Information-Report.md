@@ -2,11 +2,13 @@
 
 ## References
 
-- `wonkers-graphql/src/graphql/schema/reports/organisationReportsExtension.ts` - Report extension pattern
-- `wonkers-graphql/src/graphql/schema/reports/tessaOrderStatusReport.ts` - Nexus objectType pattern
-- `wonkers-graphql/src/graphql/schema/reports/tessaOrderStatusReportService.ts` - Service pattern
-- `wonkers-graphql/prisma/dashboard/schema.prisma` - Database schema
-- `wonkers-graphql/test/graphqlIT/reports/tessaOrderStatusReportIT.ts` - Test pattern reference
+- `devdocs/tinybots/wonkers-graphql/OVERVIEW.md` - Repo architecture, Prisma + Nexus conventions
+- `wonkers-graphql/src/graphql/schema/reports/organisationReportsExtension.ts` - OrganisationReports field pattern
+- `wonkers-graphql/src/graphql/schema/reports/tessaOrderStatusReport.ts` - objectType pattern
+- `wonkers-graphql/src/graphql/schema/reports/tessaOrderStatusReportService.ts` - service mapping pattern
+- `wonkers-graphql/src/middlewares/AllowedOrganizationQueryRegistry.ts` - organization access control registry
+- `wonkers-graphql/prisma/dashboard/schema.prisma` - Prisma models & relations (dashboard DB)
+- `wonkers-graphql/test/graphqlIT/reports/tessaOrderStatusReportIT.ts` - IT test + seeding pattern
 
 ## User Requirements
 
@@ -37,55 +39,63 @@ query SalesOrderShipmentInformation {
 
 ## 🎯 Objective
 
-Implement GraphQL report `salesOrderShipmentInformationReport` trong `reports.organisationReports` sử dụng Prisma + Nexus pattern để cung cấp thông tin vận chuyển của các sales orders.
+Implement report field `salesOrderShipmentInformationReport` dưới `reports.organisationReports` (Prisma + Nexus) để trả về shipment information cho TaaS sales orders từ `dashboard` database.
 
 ### ⚠️ Key Considerations
 
-1. **Query Path:** `reports.organisationReports.salesOrderShipmentInformationReport` (Prisma + Nexus approach)
-2. **Pattern Follow:** Theo pattern của `tessaOrderStatusReport` trong `src/graphql/schema/reports/`
-3. **Data Source:** Tất cả từ `dashboard` database, query qua `ctx.prisma.dashboard`
-4. **Data Source Mapping:**
+1. **Schema merge constraint:** Root field `reports` nằm ở legacy schema (`src/schema/typeDefs.ts`). Nexus chỉ cần bổ sung `OrganisationReports.salesOrderShipmentInformationReport`.
+2. **Security (external org):**
+   - Endpoint `/ext/v1/dashboard/graphql` dùng Organization middleware.
+   - Cần thêm entry cho field mới vào `AllowedOrganizationQueryRegistry.ts` để không bị 403.
+   - Khi request đến từ external organization, resolver phải enforce scoping theo `authenticatedOrganization.relationId` để tránh data leakage.
+3. **Data source:** Chỉ dùng `ctx.prisma.dashboard` (không join `tinybots` DB).
+4. **GraphQL scalar choices:**
+   - `shippedAt` trả `String` ISO 8601 (dùng `flattenDate`).
+   - `boxNumber` trả `String` (DB dùng `BigInt`, tránh overflow của GraphQL `Int`).
+5. **Sorting:** Default `sortOrder = "desc"`, sort theo `taas_subscription.shipped_at`.
+6. **Filtering:** `status: "shipped"` → `taas_subscription.shipped_at IS NOT NULL`; các giá trị status khác (nếu có) cần xác nhận.
 
-| Field | Source Table | Column | Notes |
-|-------|-------------|--------|-------|
-| `deliveryAddressCity` | `taas_order_delivery_address` | `city` | Via `taas_order.address_id` |
-| `deliveryAddressHomeNumber` | `taas_order_delivery_address` | `home_number` | Integer |
-| `deliveryAddressHomeNumberExtension` | `taas_order_delivery_address` | `home_number_extension` | Nullable |
-| `deliveryAddressLocationDescription` | `taas_order_delivery_address` | `locationDescription` | Nullable |
+### Data Mapping (dashboard DB)
+
+| Field | Prisma Model | Column | Notes |
+|-------|--------------|--------|------|
+| `deliveryAddressCity` | `taas_order_delivery_address` | `city` | via `taas_order.address_id` |
+| `deliveryAddressHomeNumber` | `taas_order_delivery_address` | `home_number` | `Int` |
+| `deliveryAddressHomeNumberExtension` | `taas_order_delivery_address` | `home_number_extension` | nullable |
+| `deliveryAddressLocationDescription` | `taas_order_delivery_address` | `locationDescription` | nullable (camelCase in Prisma) |
 | `deliveryAddressRecipient` | `taas_order_delivery_address` | `recipient` | |
 | `deliveryAddressStreet` | `taas_order_delivery_address` | `street` | |
 | `deliveryAddressZipcode` | `taas_order_delivery_address` | `zipcode` | |
-| `tessaExpertNeeded` | `taas_order` | `tessa_expert_needed` | Enum: 'yes'/'no'/'unknown' → Boolean/null |
-| `shippedAt` | `taas_subscription` | `shipped_at` | ISO 8601 datetime |
-| `boxNumber` | `dashboard_robot` | `box_number` | Via `taas_subscription.serial_id` |
-| `clientNumber` | `taas_subscription` / `taas_order` | `client_id` | Prefer subscription, fallback to order |
-| `trackTraceCode` | `taas_order` | `track_trace_code` | Nullable |
-| `requesterEmail` | `taas_order_contact` | `email` | Via `taas_order.requester_id` |
-| `organisationName` | `dashboard_relation` | `name` | Via `taas_order.relation_id` |
-
-5. **Filter Logic:**
-   - `status: "shipped"` → Filter orders có `taas_subscription.shipped_at IS NOT NULL`
-   - `sortOrder: "asc" | "desc"` → Sort theo `shipped_at`
+| `tessaExpertNeeded` | `taas_order` | `tessa_expert_needed` | enum `yes/no/unknown` → `boolean/null` |
+| `shippedAt` | `taas_subscription` | `shipped_at` | ISO 8601 |
+| `boxNumber` | `dashboard_robot` | `box_number` | via `taas_subscription.serial_id → dashboard_robot.id` |
+| `clientNumber` | `taas_subscription` / `taas_order` | `client_id` | prefer subscription, fallback order |
+| `trackTraceCode` | `taas_order` | `track_trace_code` | nullable |
+| `requesterEmail` | `taas_order_contact` | `email` | via `taas_order.requester_id` |
+| `organisationName` | `dashboard_relation` | `name` | via `taas_order.relation_id` |
 
 ## 🔄 Implementation Plan
 
 ### Phase 1: Analysis & Preparation
 
-- [ ] Confirm data availability trong database
-  - **Outcome:** Xác nhận tất cả fields có thể lấy được từ database relationships
-- [ ] Define edge cases:
-  - Orders không có delivery address (`address_id = NULL`) → all address fields = null
-  - Orders không có robot assigned → `boxNumber = null`
-  - Orders không có subscription → `shippedAt = null`, `clientNumber` từ order
+- [ ] Validate Prisma relations needed for single-query include
+  - **Outcome:** Confirm `taas_order` includes address, requester contact, subscription, robot, relation
+- [ ] Define functional scope & defaults
+  - **Outcome:** Decide behavior for `status`, `sortOrder`, and whether to support `limit/offset`
+- [ ] Define organization scoping strategy
+  - **Outcome:** For external org requests, enforce `relation_id = authenticatedOrganization.relationId`
 
 ### Phase 2: Implementation (File/Code Structure)
 
 ```
 wonkers-graphql/src/graphql/schema/reports/
-├── index.ts                                              # 🔄 UPDATE - Export new files
-├── organisationReportsExtension.ts                       # 🔄 UPDATE - Add field to OrganisationReports
-├── salesOrderShipmentInformationReport.ts                # ✅ CREATE - Nexus objectType definition
-└── salesOrderShipmentInformationReportService.ts         # ✅ CREATE - Prisma-based service
+├── index.ts                                              # 🔄 UPDATE - Export new report row type
+├── organisationReportsExtension.ts                       # 🔄 UPDATE - Add field resolver
+├── salesOrderShipmentInformationReport.ts                # ✅ CREATE - Nexus objectType
+└── salesOrderShipmentInformationReportService.ts         # ✅ CREATE - Prisma service
+
+wonkers-graphql/src/middlewares/
+└── AllowedOrganizationQueryRegistry.ts                   # 🔄 UPDATE - Allow new field for orgs
 
 wonkers-graphql/test/graphqlIT/reports/
 └── salesOrderShipmentInformationReportIT.ts              # ✅ CREATE - Integration tests
@@ -93,250 +103,82 @@ wonkers-graphql/test/graphqlIT/reports/
 
 ### Phase 3: Detailed Implementation Steps
 
-#### Step 1: Create Nexus ObjectType (`salesOrderShipmentInformationReport.ts`) 🚧
+#### Step 1: Define Row Type (`salesOrderShipmentInformationReport.ts`)
 
-```typescript
-import { objectType } from 'nexus'
+Define `SalesOrderShipmentInformationReportRow` bằng `objectType` (nullable fields theo DB reality).
 
-export const SalesOrderShipmentInformationReportRow = objectType({
-  name: 'SalesOrderShipmentInformationReportRow',
-  definition(t) {
-    // Delivery Address Fields
-    t.nullable.string('deliveryAddressCity', { description: 'City of delivery address' })
-    t.nullable.int('deliveryAddressHomeNumber', { description: 'Home number of delivery address' })
-    t.nullable.string('deliveryAddressHomeNumberExtension', { description: 'Home number extension' })
-    t.nullable.string('deliveryAddressLocationDescription', { description: 'Location description' })
-    t.nullable.string('deliveryAddressRecipient', { description: 'Recipient name' })
-    t.nullable.string('deliveryAddressStreet', { description: 'Street name' })
-    t.nullable.string('deliveryAddressZipcode', { description: 'Zipcode' })
-    
-    // Order Fields
-    t.nullable.boolean('tessaExpertNeeded', { description: 'Whether Tessa expert assistance is needed' })
-    t.nullable.string('shippedAt', { description: 'When the order was shipped (ISO 8601)' })
-    t.nullable.string('boxNumber', { description: 'Robot box number' })
-    t.nullable.string('clientNumber', { description: 'Client identifier' })
-    t.nullable.string('trackTraceCode', { description: 'Track and trace code for shipment' })
-    t.nullable.string('requesterEmail', { description: 'Email of the requester' })
-    t.nullable.string('organisationName', { description: 'Name of the organisation' })
-  }
-})
-```
+#### Step 2: Implement Service (`salesOrderShipmentInformationReportService.ts`)
 
-#### Step 2: Create Service (`salesOrderShipmentInformationReportService.ts`) 🚧
+- Signature đề xuất (có `relationId` optional để enforce scoping cho external org):
+  - `buildReport(params: { relationId?: number; status?: string; sortOrder?: 'asc'|'desc'; limit?: number; offset?: number })`
+- Prisma query:
+  - `taas_order.findMany({ where, include, orderBy, skip, take })`
+  - `where` gồm:
+    - `relation_id` nếu `relationId` được set (external org enforced)
+    - filter theo `status` (hiện chỉ “shipped”)
+- Mapping:
+  - address via `taas_order_delivery_address_taas_order_address_idTotaas_order_delivery_address`
+  - requester via `taas_order_contact_taas_order_requester_idTotaas_order_contact`
+  - subscription/robot via `taas_subscription.dashboard_robot`
+  - `shippedAt` dùng `flattenDate(subscription?.shipped_at)`
+  - `boxNumber` dùng `robot?.box_number?.toString() ?? null`
 
-```typescript
-import { PrismaClient as DashboardPrismaClient } from '../../../generated/prisma/dashboard'
-import { flattenDate } from '../../utils/datetime'
+#### Step 3: Add Field to `OrganisationReports` (`organisationReportsExtension.ts`)
 
-export interface SalesOrderShipmentInformationReportRow {
-  deliveryAddressCity: string | null
-  deliveryAddressHomeNumber: number | null
-  deliveryAddressHomeNumberExtension: string | null
-  deliveryAddressLocationDescription: string | null
-  deliveryAddressRecipient: string | null
-  deliveryAddressStreet: string | null
-  deliveryAddressZipcode: string | null
-  tessaExpertNeeded: boolean | null
-  shippedAt: string | null
-  boxNumber: string | null
-  clientNumber: string | null
-  trackTraceCode: string | null
-  requesterEmail: string | null
-  organisationName: string | null
-}
+- Add `salesOrderShipmentInformationReport` với args tối thiểu theo requirement:
+  - `sortOrder: String` (default: `"desc"`, only accept `"asc"|"desc"`)
+  - `status: String` (optional)
+- Resolver behavior:
+  - Create service với `ctx.prisma.dashboard`
+  - Nếu request là external org (có `authenticatedOrganization` trong context) → pass `relationId = authenticatedOrganization.relationId` vào service, ignore any broader scope.
+  - Nếu internal/authenticated user → `relationId` undefined (return across all relations) trừ khi team muốn add filter.
 
-export class SalesOrderShipmentInformationReportService {
-  constructor(private dashboardPrisma: DashboardPrismaClient) {}
+#### Step 4: Export from `reports/index.ts`
 
-  async buildReport(
-    sortOrder: 'asc' | 'desc' = 'desc',
-    status?: string
-  ): Promise<SalesOrderShipmentInformationReportRow[]> {
-    // Build where clause based on status
-    const whereClause: any = {}
-    if (status === 'shipped') {
-      whereClause.taas_subscription = {
-        shipped_at: { not: null }
-      }
-    }
+Export `SalesOrderShipmentInformationReportRow` để Nexus schema include type.
 
-    // Query orders with all related data
-    const orders = await this.dashboardPrisma.taas_order.findMany({
-      where: whereClause,
-      include: {
-        taas_order_delivery_address_taas_order_address_idTotaas_order_delivery_address: true,
-        taas_subscription: {
-          include: {
-            dashboard_robot: true
-          }
-        },
-        dashboard_relation: true,
-        taas_order_contact_taas_order_requester_idTotaas_order_contact: true
-      },
-      orderBy: {
-        taas_subscription: {
-          shipped_at: sortOrder
-        }
-      }
-    })
+#### Step 5: Allow Organization Access (`AllowedOrganizationQueryRegistry.ts`)
 
-    // Map to report rows
-    return orders.map(order => {
-      const address = order.taas_order_delivery_address_taas_order_address_idTotaas_order_delivery_address
-      const subscription = order.taas_subscription
-      const robot = subscription?.dashboard_robot
-      const requester = order.taas_order_contact_taas_order_requester_idTotaas_order_contact
+Add new entry:
+- key: `SALES_ORDER_SHIPMENT_INFORMATION_REPORT`
+- `requiredScope: ['reports:read:self']`
+- `argRewriter`: optional (không bắt buộc nếu resolver tự enforce `relationId` từ context)
 
-      return {
-        deliveryAddressCity: address?.city ?? null,
-        deliveryAddressHomeNumber: address?.home_number ?? null,
-        deliveryAddressHomeNumberExtension: address?.home_number_extension ?? null,
-        deliveryAddressLocationDescription: address?.locationDescription ?? null,
-        deliveryAddressRecipient: address?.recipient ?? null,
-        deliveryAddressStreet: address?.street ?? null,
-        deliveryAddressZipcode: address?.zipcode ?? null,
-        tessaExpertNeeded: order.tessa_expert_needed === 'yes' ? true 
-                         : order.tessa_expert_needed === 'no' ? false 
-                         : null,
-        shippedAt: flattenDate(subscription?.shipped_at),
-        boxNumber: robot?.box_number?.toString() ?? null,
-        clientNumber: subscription?.client_id ?? order.client_id,
-        trackTraceCode: order.track_trace_code ?? null,
-        requesterEmail: requester?.email ?? null,
-        organisationName: order.dashboard_relation?.name ?? null
-      }
-    })
-  }
-}
-```
+## 🧪 Test Cases (Integration)
 
-#### Step 3: Update Extension (`organisationReportsExtension.ts`) 🚧
+### Test File: `wonkers-graphql/test/graphqlIT/reports/salesOrderShipmentInformationReportIT.ts`
 
-Add new field to `OrganisationReports`:
+Reuse pattern của `tessaOrderStatusReportIT.ts`:
 
-```typescript
-t.list.field('salesOrderShipmentInformationReport', {
-  type: nonNull(SalesOrderShipmentInformationReportRow),
-  args: {
-    sortOrder: stringArg({ 
-      description: 'Sort order by shipped date: "asc" or "desc" (default: "desc")' 
-    }),
-    status: stringArg({ 
-      description: 'Filter by status: "shipped" returns only shipped orders' 
-    })
-  },
-  async resolve(_parent, args, ctx) {
-    const service = new SalesOrderShipmentInformationReportService(ctx.prisma.dashboard)
-    const sortOrder = args.sortOrder === 'asc' ? 'asc' : 'desc'
-    return service.buildReport(sortOrder, args.status ?? undefined)
-  }
-})
-```
+- Seeding helpers:
+  - `seedRelation()`, `seedIntegration()`, `seedRequesterContact()`
+  - `seedDeliveryAddress()`
+  - `seedRobot(serial, { boxNumber? })`
+  - `seedSubscription(serial, { shippedAt?, clientId? })`
+  - `seedOrder(subscriptionId|null, { addressId?, trackTraceCode?, tessaExpertNeeded? })`
+- Cleanup seeded entities after each test
 
-#### Step 4: Update Index (`index.ts`) 🚧
+Minimum IT scenarios:
 
-```typescript
-export * from './salesOrderShipmentInformationReport'
-```
-
-## 🧪 Test Cases
-
-### Test File: `test/graphqlIT/reports/salesOrderShipmentInformationReportIT.ts`
-
-#### Setup & Teardown
-
-- Use `DashboardPrismaClient` for seeding test data
-- Seed helper functions:
-  - `seedRelation()` - Create test organisation
-  - `seedIntegration()` - Create test integration
-  - `seedRequesterContact()` - Create test requester contact
-  - `seedDeliveryAddress()` - Create delivery address
-  - `seedRobot()` - Create dashboard robot with box_number
-  - `seedSubscription()` - Create subscription with shipped_at
-  - `seedOrder()` - Create order linking all entities
-- Cleanup after each test to ensure isolation
-
-#### Test Cases
-
-##### 1. Basic Data Return Tests
-
-| Test Case | Description | Expected Outcome |
-|-----------|-------------|------------------|
-| `should return order with all fields populated` | Seed complete order with all relations | All 14 fields returned with correct values |
-| `should return correct delivery address fields` | Seed order with delivery address | All 7 address fields match seeded data |
-| `should return correct requester email` | Seed order with requester contact | `requesterEmail` matches contact email |
-| `should return correct organisation name` | Seed order with relation | `organisationName` matches relation name |
-
-##### 2. Nullable Field Handling
-
-| Test Case | Description | Expected Outcome |
-|-----------|-------------|------------------|
-| `should return null for missing delivery address` | Order without `address_id` | All address fields = null |
-| `should return null for missing robot/boxNumber` | Subscription without robot | `boxNumber = null` |
-| `should return null for order without subscription` | Order with `taas_id = null` | `shippedAt = null`, `boxNumber = null` |
-| `should return null for missing track trace code` | Order without track_trace_code | `trackTraceCode = null` |
-| `should handle null home_number_extension` | Address without extension | `deliveryAddressHomeNumberExtension = null` |
-
-##### 3. tessaExpertNeeded Mapping
-
-| Test Case | Description | Expected Outcome |
-|-----------|-------------|------------------|
-| `should map tessa_expert_needed 'yes' to true` | Order with `tessa_expert_needed = 'yes'` | `tessaExpertNeeded = true` |
-| `should map tessa_expert_needed 'no' to false` | Order with `tessa_expert_needed = 'no'` | `tessaExpertNeeded = false` |
-| `should map tessa_expert_needed 'unknown' to null` | Order with `tessa_expert_needed = 'unknown'` | `tessaExpertNeeded = null` |
-
-##### 4. Filter Tests
-
-| Test Case | Description | Expected Outcome |
-|-----------|-------------|------------------|
-| `should filter by status 'shipped'` | Seed shipped + non-shipped orders | Only shipped orders returned |
-| `should return all orders when no status filter` | Seed mixed orders | All orders returned |
-| `should handle empty result when no shipped orders` | No shipped orders exist | Empty array `[]` |
-
-##### 5. Sort Order Tests
-
-| Test Case | Description | Expected Outcome |
-|-----------|-------------|------------------|
-| `should sort by shippedAt DESC by default` | Multiple orders with different shipped_at | Newest shipped first |
-| `should sort by shippedAt ASC when specified` | `sortOrder: "asc"` | Oldest shipped first |
-| `should handle sort with null shippedAt values` | Mix of shipped and non-shipped | Null values at end/beginning based on DB behavior |
-
-##### 6. clientNumber Priority Tests
-
-| Test Case | Description | Expected Outcome |
-|-----------|-------------|------------------|
-| `should prefer subscription client_id over order client_id` | Both have different values | Returns subscription's client_id |
-| `should fallback to order client_id when subscription is null` | No subscription | Returns order's client_id |
-
-##### 7. Edge Cases
-
-| Test Case | Description | Expected Outcome |
-|-----------|-------------|------------------|
-| `should return empty array when no orders exist` | Empty database | `[]` |
-| `should handle multiple orders correctly` | Seed 5 orders | Returns all 5 with correct data |
-| `should handle special characters in fields` | Address with "ë", "ñ" | Characters preserved correctly |
-
-##### 8. Date Format Tests
-
-| Test Case | Description | Expected Outcome |
-|-----------|-------------|------------------|
-| `should return shippedAt in ISO 8601 format` | Order with shipped_at | Format: `YYYY-MM-DDTHH:mm:ss.sssZ` |
-
-## 📊 Summary of Results
-
-> Do not summarize the results until the implementation is done and I request it
-
-### ✅ Completed Achievements
-- [ ] Service layer implemented
-- [ ] Nexus types defined
-- [ ] Extension updated
-- [ ] All tests passing
+1. **Basic mapping**
+   - Seed full chain: relation + requester + address + robot + subscription(shipped_at) + order(track_trace_code)
+   - Expect all fields populated; `boxNumber` is string; `shippedAt` ISO.
+2. **Nullable handling**
+   - Order without address → address fields null
+   - Order with subscription but no robot → `boxNumber = null`
+   - Order without subscription → `shippedAt = null`, `boxNumber = null`, `clientNumber` fallback to order
+3. **Filter/sort**
+   - Mix shipped and non-shipped → `status: "shipped"` only returns shipped
+   - Default sort is desc; `sortOrder: "asc"` flips
+4. **Organization auth (external)**
+   - Valid scopes: `reports:read:self` returns only orders for `x-relation-id`
+   - Invalid scopes / missing headers returns 403 (match behavior in existing org tests)
 
 ## 🚧 Outstanding Issues & Follow-up
 
-### ⚠️ Clarifications Needed
+### ⚠️ Clarifications Needed (ask before implementation)
 
-- [ ] **Pagination:** Report có cần `limit`/`offset` arguments không? Các report khác có support
-- [ ] **Additional status values:** Ngoài "shipped", có cần support status khác không? (e.g., "all", "pending", "delivered")
-- [ ] **Organization scoping:** Report có cần filter theo `relationIds` không? Pattern phổ biến trong các report khác
-
+- [x] **Pagination:** Có cần `limit/offset` (hoặc default limit) để tránh trả về quá nhiều rows không? => Có
+- [x] **Status contract:** `status` chỉ hỗ trợ `"shipped"` hay có thêm values khác? Nếu có, định nghĩa mapping như thế nào? => Dựa vào database để bổ sung thêm các kiểu khác đi
+- [ ] **Internal scope:** Internal users có được query cross-relations (all relations) không, hay phải bắt buộc filter theo `relationId(s)`? => chưa hiểu cái này, cứ làm như cũ chuẩn để response về đúng graphql là được.
+- [x] **External org exposure:** Field này có cần expose cho `/ext/v1/dashboard/graphql` không? Nếu có, scope nào áp dụng ngoài `reports:read:self`? => không thay đổi endpoint, dùng lại endpoint cũ, chỉ là permission có thể sẽ cần nhưng chúng ta cũng đã có cơ chế để thêm permission rồi. Nhưng sẽ bổ sung sau
