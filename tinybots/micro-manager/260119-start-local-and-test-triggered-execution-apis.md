@@ -167,3 +167,7 @@ Expected:
 - `executionType = "triggered"`
 - Có `trigger.triggerName = "seed.micro-manager.trigger"`
 - `scriptExecutionSteps` chứa các step executions đã gửi lên ở curl PUT (4.1)
+
+
+
+I always feel supported by team whenever I need help.

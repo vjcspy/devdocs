@@ -15,7 +15,7 @@
 ```graphql
 query SalesOrderShipmentInformation {
   reports {
-    organisationReports {
+    allReports {
       salesOrderShipmentInformationReport(sortOrder: "desc", status: "shipped") {
         deliveryAddressCity
         deliveryAddressHomeNumber
@@ -39,11 +39,11 @@ query SalesOrderShipmentInformation {
 
 ## 🎯 Objective
 
-Implement report field `salesOrderShipmentInformationReport` dưới `reports.organisationReports` (Prisma + Nexus) để trả về shipment information cho TaaS sales orders từ `dashboard` database.
+Implement report field `salesOrderShipmentInformationReport` dưới `reports.allReports` (Prisma + Nexus) để trả về shipment information cho TaaS sales orders từ `dashboard` database.
 
 ### ⚠️ Key Considerations
 
-1. **Schema merge constraint:** Root field `reports` nằm ở legacy schema (`src/schema/typeDefs.ts`). Nexus chỉ cần bổ sung `OrganisationReports.salesOrderShipmentInformationReport`.
+1. **Schema merge constraint:** Root field `reports` nằm ở legacy schema (`src/schema/typeDefs.ts`). Nexus chỉ cần bổ sung `AllReports.salesOrderShipmentInformationReport`.
 2. **Security (external org):**
    - Endpoint `/ext/v1/dashboard/graphql` dùng Organization middleware.
    - Cần thêm entry cho field mới vào `AllowedOrganizationQueryRegistry.ts` để không bị 403.
@@ -89,16 +89,22 @@ Implement report field `salesOrderShipmentInformationReport` dưới `reports.or
 
 ```
 wonkers-graphql/src/graphql/schema/reports/
-├── index.ts                                              # 🔄 UPDATE - Export new report row type
-├── organisationReportsExtension.ts                       # 🔄 UPDATE - Add field resolver
-├── salesOrderShipmentInformationReport.ts                # ✅ CREATE - Nexus objectType
-└── salesOrderShipmentInformationReportService.ts         # ✅ CREATE - Prisma service
+├── allReports/
+│   ├── allReports.type.ts                                # 🔄 UPDATE - Add field resolver
+│   ├── index.ts                                          # 🔄 UPDATE - Export new type
+│   └── salesOrderShipment/                               # ✅ CREATE - New report folder
+│       ├── salesOrderShipment.type.ts                    # ✅ CREATE - Nexus objectType
+│       ├── salesOrderShipment.service.ts                 # ✅ CREATE - Prisma service
+│       └── index.ts                                      # ✅ CREATE - Exports
 
 wonkers-graphql/src/middlewares/
 └── AllowedOrganizationQueryRegistry.ts                   # 🔄 UPDATE - Allow new field for orgs
 
 wonkers-graphql/test/graphqlIT/reports/
 └── salesOrderShipmentInformationReportIT.ts              # ✅ CREATE - Integration tests
+
+wonkers-db/src/main/resources/db/migration/
+└── V59__graphql_report_ro_shipment_permissions.sql       # ✅ CREATE - DB permissions for report
 ```
 
 ### Phase 3: Detailed Implementation Steps
@@ -123,17 +129,19 @@ Define `SalesOrderShipmentInformationReportRow` bằng `objectType` (nullable fi
   - `shippedAt` dùng `flattenDate(subscription?.shipped_at)`
   - `boxNumber` dùng `robot?.box_number?.toString() ?? null`
 
-#### Step 3: Add Field to `OrganisationReports` (`organisationReportsExtension.ts`)
+#### Step 3: Add Field to `AllReports` (`allReports/allReports.type.ts`)
 
 - Add `salesOrderShipmentInformationReport` với args tối thiểu theo requirement:
+  - `relationIds: [Int]` (optional filter by organization)
   - `sortOrder: String` (default: `"desc"`, only accept `"asc"|"desc"`)
   - `status: String` (optional)
+  - `limit: Int` (default: 1000)
+  - `offset: Int` (default: 0)
 - Resolver behavior:
   - Create service với `ctx.prisma.dashboard`
-  - Nếu request là external org (có `authenticatedOrganization` trong context) → pass `relationId = authenticatedOrganization.relationId` vào service, ignore any broader scope.
-  - Nếu internal/authenticated user → `relationId` undefined (return across all relations) trừ khi team muốn add filter.
+  - Pass `relationIds` if provided for filtering
 
-#### Step 4: Export from `reports/index.ts`
+#### Step 4: Export from `allReports/index.ts`
 
 Export `SalesOrderShipmentInformationReportRow` để Nexus schema include type.
 
@@ -158,21 +166,29 @@ Reuse pattern của `tessaOrderStatusReportIT.ts`:
   - `seedOrder(subscriptionId|null, { addressId?, trackTraceCode?, tessaExpertNeeded? })`
 - Cleanup seeded entities after each test
 
-Minimum IT scenarios:
+### IT Scenarios (Implemented)
 
-1. **Basic mapping**
-   - Seed full chain: relation + requester + address + robot + subscription(shipped_at) + order(track_trace_code)
-   - Expect all fields populated; `boxNumber` is string; `shippedAt` ISO.
-2. **Nullable handling**
-   - Order without address → address fields null
-   - Order with subscription but no robot → `boxNumber = null`
-   - Order without subscription → `shippedAt = null`, `boxNumber = null`, `clientNumber` fallback to order
-3. **Filter/sort**
-   - Mix shipped and non-shipped → `status: "shipped"` only returns shipped
-   - Default sort is desc; `sortOrder: "asc"` flips
-4. **Organization auth (external)**
-   - Valid scopes: `reports:read:self` returns only orders for `x-relation-id`
-   - Invalid scopes / missing headers returns 403 (match behavior in existing org tests)
+- [x] **1. Basic mapping (full chain)**
+  - Seed: relation → requester → address → robot(boxNumber) → subscription(shipped_at) → order(track_trace_code, tessa_expert_needed)
+  - Expect all fields populated; `boxNumber` is string; `shippedAt` ISO 8601
+- [x] **2. Nullable handling - Order without address**
+  - Order has no delivery address → all address fields null
+- [x] **3. Nullable handling - Order without robot**
+  - Subscription exists but no robot linked → `boxNumber = null`
+- [x] **4. Nullable handling - Order without subscription**
+  - `shippedAt = null`, `boxNumber = null`, `clientNumber` fallback to order.client_id
+- [x] **5. Filter by status: shipped**
+  - Mix shipped and non-shipped orders → `status: "shipped"` only returns shipped
+- [x] **6. Filter by status: delivered**
+  - Filter `status: "delivered"` returns only delivered orders
+- [x] **7. Sort order**
+  - Default sort is desc by shipped_at; `sortOrder: "asc"` flips order
+- [x] **8. Pagination (limit/offset)**
+  - Test `limit: 2, offset: 1` returns correct subset
+- [x] **9. Organization auth - valid scopes**
+  - External org with `reports:read:self` returns only orders for `x-relation-id`
+- [x] **10. Organization auth - invalid scopes**
+  - Missing/invalid scope returns 403
 
 ## 🚧 Outstanding Issues & Follow-up
 
