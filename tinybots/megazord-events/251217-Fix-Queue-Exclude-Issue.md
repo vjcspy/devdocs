@@ -2,11 +2,11 @@
 
 ## References
 
-- `/Users/kai/work/tinybots/megazord-events/src/models/domains/SubscriptionDomain.ts` - Domain model with problematic `@Exclude()` decorator
-- `/Users/kai/work/tinybots/megazord-events/src/services/EventSubscriptionService.ts` - Service using queue field for message routing
-- `/Users/kai/work/tinybots/megazord-events/src/controllers/EventSubscriptionsController.ts` - Controller exposing subscription endpoints
-- `/Users/kai/work/tinybots/devdocs/tinybots/megazord-events/251210-Queue-Per-Subscription.md` - Original refactor plan
-- `/Users/kai/work/tinybots/devdocs/tinybots/megazord-events/OVERVIEW.md` - Repository overview
+- `/Users/kai/work/tinybots/tinybots/megazord-events/src/models/domains/SubscriptionDomain.ts` - Domain model with problematic `@Exclude()` decorator
+- `/Users/kai/work/tinybots/tinybots/megazord-events/src/services/EventSubscriptionService.ts` - Service using queue field for message routing
+- `/Users/kai/work/tinybots/tinybots/megazord-events/src/controllers/EventSubscriptionsController.ts` - Controller exposing subscription endpoints
+- `/Users/kai/work/tinybots/tinybots/devdocs/tinybots/megazord-events/251210-Queue-Per-Subscription.md` - Original refactor plan
+- `/Users/kai/work/tinybots/tinybots/devdocs/tinybots/megazord-events/OVERVIEW.md` - Repository overview
 
 ## User Requirements
 
@@ -93,7 +93,7 @@ megazord-events/
 
 **Task:** Update `@Exclude()` decorator to use `toPlainOnly` option, allowing DB hydration while preventing API exposure
 
-**File:** `/Users/kai/work/tinybots/megazord-events/src/models/domains/SubscriptionDomain.ts`
+**File:** `/Users/kai/work/tinybots/tinybots/megazord-events/src/models/domains/SubscriptionDomain.ts`
 
 **Current Code (Lines 32-36):**
 ```typescript
@@ -125,7 +125,7 @@ queue?: string
 
 **Task:** Ensure repository correctly transforms DB results to domain with queue field populated
 
-**File:** `/Users/kai/work/tinybots/megazord-events/src/repositories/EventSubscriptionsRepository.ts`
+**File:** `/Users/kai/work/tinybots/tinybots/megazord-events/src/repositories/EventSubscriptionsRepository.ts`
 
 **Verification Points:**
 - Confirm `GET_ALL` query includes `ES.QUEUE queue` in SELECT (line 69)
@@ -143,7 +143,7 @@ queue?: string
 
 **Task:** Create unit test verifying queue field is correctly populated from repository
 
-**File:** `/Users/kai/work/tinybots/megazord-events/test/services/EventSubscriptionServiceTest.ts`
+**File:** `/Users/kai/work/tinybots/tinybots/megazord-events/test/services/EventSubscriptionServiceTest.ts`
 
 **Test Case:** "should populate queue field from database when broadcasting events"
 
@@ -172,7 +172,7 @@ test('should populate queue field from database when broadcasting events', async
 
 **Task:** Verify queue field is NOT exposed in API responses despite being populated internally
 
-**File:** `/Users/kai/work/tinybots/megazord-events/test/controllers/EventSubscriptionControllerIT.ts`
+**File:** `/Users/kai/work/tinybots/tinybots/megazord-events/test/controllers/EventSubscriptionControllerIT.ts`
 
 **Test Case:** "should not expose queue field in subscription API responses"
 
@@ -208,7 +208,7 @@ test('should not expose queue field in subscription GET response', async () => {
 
 **Task:** Confirm existing integration tests validate correct queue routing behavior
 
-**File:** `/Users/kai/work/tinybots/megazord-events/test/controllers/EventSubscriptionControllerIT.ts`
+**File:** `/Users/kai/work/tinybots/tinybots/megazord-events/test/controllers/EventSubscriptionControllerIT.ts`
 
 **Existing Test Reference:** According to `251210-Queue-Per-Subscription.md`, queue routing tests were already added in PR #49
 

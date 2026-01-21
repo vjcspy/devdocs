@@ -58,12 +58,40 @@
 
 - Most services are Node.js/TypeScript (Yarn); schema repos use Java/Maven.
 - Shared middleware and scaffolding live in tiny-backend-tools; shared clients and DTOs live in tiny-internal-services.
-- Run tests via the centralized DevTools commands from the workspace root: `just -f devtools/Justfile test-<repo>`.
+- Run tests via the centralized DevTools commands from the workspace root: `just -f devtools/tinybots/local/Justfile test-<repo>`.
 - Keep repo overviews under `devdocs/tinybots/<repo>/OVERVIEW.md` up to date; missing overviews should be added when the repo is actively worked on.
+
+## DevTools Infrastructure
+
+TinyBots uses a centralized DevTools infrastructure located at `devtools/tinybots/local/`. Key capabilities:
+
+| Feature | Description |
+|---------|-------------|
+| **Docker Compose** | Single `docker-compose.yaml` defining all databases, migration runners, and shared services |
+| **Just Commands** | Repository-specific commands for starting dependencies, running tests, and dev mode |
+| **Seed Data** | NPM scripts to populate databases with realistic test data |
+| **Database Services** | MySQL containers for typ-e-db, wonkers-db, and atlas-intelligence-db |
+
+**Quick Commands:**
+
+```bash
+# Run tests for a repository
+just -f devtools/tinybots/local/Justfile test-<repo>
+
+# Start dependencies for local development
+just -f devtools/tinybots/local/Justfile start-<repo>
+
+# View service logs
+just -f devtools/tinybots/local/Justfile log-<repo>
+```
+
+> **For detailed setup and all available commands**, see: `devdocs/misc/devtools/tinybots/OVERVIEW.md`
+
+## Database Access
 
 For tasks requiring database work (schema changes, queries, migrations), query the database directly to get current schema context before proposing changes.
 
-The project uses MySQL databases running via Docker Compose (`devtools/docker-compose.yaml`):
+The project uses MySQL databases running via Docker Compose (`devtools/tinybots/local/docker-compose.yaml`):
 
 | Database | Service Name | Host (from host machine) | Port | Database Name | Root Password |
 |----------|-------------|--------------------------|------|---------------|---------------|
@@ -76,13 +104,13 @@ How to query database context:
 Step 1: ensure Docker services are running
 
 ```bash
-cd devtools && docker compose ps
+cd devtools/tinybots/local && docker compose ps
 ```
 
 If not running, start them:
 
 ```bash
-cd devtools && docker compose up -d mysql-typ-e-db mysql-wonkers-db
+cd devtools/tinybots/local && docker compose up -d mysql-typ-e-db mysql-wonkers-db
 ```
 
 Step 2: query database schema/data
@@ -134,47 +162,24 @@ WHERE REFERENCED_TABLE_NAME IS NOT NULL
   AND TABLE_SCHEMA = 'tinybots';
 ```
 
-All repositories in TinyBots can only run tests inside Docker containers. Do not attempt to run tests directly on your local machine; they will fail due to missing infrastructure dependencies.
+## Test Execution
 
-Tests must be executed using the centralized DevTools infrastructure via `just` commands:
-
-```bash
-just -f devtools/Justfile test-<repo>
-```
-
-Available repositories:
-
-| Repository | Command |
-|------------|---------|
-| atlas | just -f devtools/Justfile test-atlas |
-| m-o-triggers | just -f devtools/Justfile test-m-o-triggers |
-| megazord-events | just -f devtools/Justfile test-megazord-events |
-| micro-manager | just -f devtools/Justfile test-micro-manager |
-| sensara-adaptor | just -f devtools/Justfile test-sensara-adaptor |
-| wonkers-ecd | just -f devtools/Justfile test-wonkers-ecd |
-| wonkers-graphql | just -f devtools/Justfile test-wonkers-graphql |
-
-Important notes:
-
-- Execution time: tests take 1-2 minutes due to Docker container startup, migrations, and service initialization.
-- Do not interrupt: let the test command finish completely to get accurate results.
-- Prerequisites: ensure Docker is running and you have ECR access (see `devdocs/tinybots/devtools/OVERVIEW.md` for setup).
-- Working directory: run commands from the workspace root (`tinybots/`), not from inside the repository folder.
-
-Troubleshooting test failures:
+> **CRITICAL:** All TinyBots tests can ONLY run inside Docker containers via `just` commands. Do NOT run tests directly on your local machine—they will fail due to missing infrastructure dependencies.
 
 ```bash
-# View logs for a specific repository's services
-just -f devtools/Justfile log-<repo>
-
-# Check Docker container status
-cd devtools && docker compose ps
-
-# Restart from clean state
-cd devtools && docker compose down
-just -f devtools/Justfile start-db
-just -f devtools/Justfile test-<repo>
+# Run tests for a repository
+just -f devtools/tinybots/local/Justfile test-<repo>
 ```
+
+**For complete test execution instructions, troubleshooting, and available repositories**, see: `devdocs/agent/rules/tinybots/run-tests.md`
+
+## Writing Tests
+
+When writing new tests for TinyBots repositories, follow the testing guidelines skill for assertion patterns and best practices:
+
+- **Skill:** `devdocs/agent/skills/tinybots/testing-guidelines/SKILL.md`
+- Use `deep.include` for object assertions (not individual field checks)
+- Follow Arrange-Act-Assert pattern
 
 Repository Coverage Table
 

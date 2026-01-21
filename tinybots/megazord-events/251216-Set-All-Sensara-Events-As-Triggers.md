@@ -2,12 +2,12 @@
 
 ## References
 
-- [Global Overview](/Users/kai/work/tinybots/devdocs/tinybots/OVERVIEW.md)
-- [megazord-events OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/megazord-events/OVERVIEW.md)
-- [sensara-adaptor OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/sensara-adaptor/OVERVIEW.md)
-- [TinybotsEvent enum](/Users/kai/work/tinybots/tiny-internal-services/lib/model/events/TinybotsEvent.ts)
-- [Event Schema Generator](/Users/kai/work/tinybots/megazord-events/schemas/gen.ts)
-- [Event Schemas Directory](/Users/kai/work/tinybots/megazord-events/schemas/events/)
+- [Global Overview](/Users/kai/work/tinybots/tinybots/devdocs/tinybots/OVERVIEW.md)
+- [megazord-events OVERVIEW](/Users/kai/work/tinybots/tinybots/devdocs/tinybots/megazord-events/OVERVIEW.md)
+- [sensara-adaptor OVERVIEW](/Users/kai/work/tinybots/tinybots/devdocs/tinybots/sensara-adaptor/OVERVIEW.md)
+- [TinybotsEvent enum](/Users/kai/work/tinybots/tinybots/tiny-internal-services/lib/model/events/TinybotsEvent.ts)
+- [Event Schema Generator](/Users/kai/work/tinybots/tinybots/megazord-events/schemas/gen.ts)
+- [Event Schemas Directory](/Users/kai/work/tinybots/tinybots/megazord-events/schemas/events/)
 
 ## User Requirements
 
@@ -148,7 +148,7 @@ const CustomConfigs: {
 
 **Commands:**
 ```bash
-cd /Users/kai/work/tinybots/megazord-events
+cd /Users/kai/work/tinybots/tinybots/megazord-events
 # Regenerate all schemas with FORCE_GENERATE flag to overwrite existing files
 FORCE_GENERATE=true yarn generate:schemas
 ```

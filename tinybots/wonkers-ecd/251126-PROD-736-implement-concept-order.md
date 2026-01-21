@@ -2,9 +2,9 @@
 
 ## References
 
-- Global standard: `/Users/kai/work/tinybots/devdocs/tinybots/OVERVIEW.md`
-- Repo-specific standard: `/Users/kai/work/tinybots/devdocs/tinybots/wonkers-ecd/OVERVIEW.md`
-- Template: `/Users/kai/work/tinybots/devdocs/agent/TEMPLATE.md`
+- Global standard: `/Users/kai/work/tinybots/tinybots/devdocs/tinybots/OVERVIEW.md`
+- Repo-specific standard: `/Users/kai/work/tinybots/tinybots/devdocs/tinybots/wonkers-ecd/OVERVIEW.md`
+- Template: `/Users/kai/work/tinybots/tinybots/devdocs/agent/TEMPLATE.md`
 - Existing ZSP implementation: `src/service/zsp/ZspService.ts` (reference pattern)
 - Ecare Puur service: `src/service/ecare/EcarePuurService.ts` (to be refactored)
 - Ecare Puur mapping: `src/service/ecare/EcarePuurMappingService.ts` (validation logic)

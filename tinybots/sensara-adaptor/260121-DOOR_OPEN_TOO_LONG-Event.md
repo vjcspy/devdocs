@@ -2,15 +2,15 @@
 
 ## References
 
-- [Global Overview](/Users/kai/work/tinybots/devdocs/tinybots/OVERVIEW.md)
-- [megazord-events OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/megazord-events/OVERVIEW.md)
-- [sensara-adaptor OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/sensara-adaptor/OVERVIEW.md)
-- [Similar Implementation Plan: PROD591 Add New Event Type](/Users/kai/work/tinybots/devdocs/tinybots/megazord-events/251112-PROD591-add-new-event-type.md)
-- [TinybotsEvent enum](/Users/kai/work/tinybots/tiny-internal-services/lib/model/events/TinybotsEvent.ts)
-- [SensaraNotificationType enum (shared)](/Users/kai/work/tinybots/tiny-internal-services/lib/model/sensara/SensaraNotificationDto.ts)
-- [SensaraNotificationType enum (local)](/Users/kai/work/tinybots/sensara-adaptor/src/model/sensara/NotificationResponse.ts)
-- [Event Schema Generator](/Users/kai/work/tinybots/megazord-events/schemas/gen.ts)
-- [SensaraEventsJob](/Users/kai/work/tinybots/sensara-adaptor/src/jobs/SensaraEventsJob.ts)
+- [Global Overview](/Users/kai/work/tinybots/tinybots/devdocs/tinybots/OVERVIEW.md)
+- [megazord-events OVERVIEW](/Users/kai/work/tinybots/tinybots/devdocs/tinybots/megazord-events/OVERVIEW.md)
+- [sensara-adaptor OVERVIEW](/Users/kai/work/tinybots/tinybots/devdocs/tinybots/sensara-adaptor/OVERVIEW.md)
+- [Similar Implementation Plan: PROD591 Add New Event Type](/Users/kai/work/tinybots/tinybots/devdocs/tinybots/megazord-events/251112-PROD591-add-new-event-type.md)
+- [TinybotsEvent enum](/Users/kai/work/tinybots/tinybots/tiny-internal-services/lib/model/events/TinybotsEvent.ts)
+- [SensaraNotificationType enum (shared)](/Users/kai/work/tinybots/tinybots/tiny-internal-services/lib/model/sensara/SensaraNotificationDto.ts)
+- [SensaraNotificationType enum (local)](/Users/kai/work/tinybots/tinybots/sensara-adaptor/src/model/sensara/NotificationResponse.ts)
+- [Event Schema Generator](/Users/kai/work/tinybots/tinybots/megazord-events/schemas/gen.ts)
+- [SensaraEventsJob](/Users/kai/work/tinybots/tinybots/sensara-adaptor/src/jobs/SensaraEventsJob.ts)
 
 ## User Requirements
 
@@ -72,7 +72,7 @@ this._pendingEventSource.addEventListener('StateExtramuralResponse', ...)
 
 | Event Type | Description | Status | Plan |
 |------------|-------------|--------|------|
-| `LastLocationResponse` | Real-time location updates from sensors | ❌ Not implemented | [260107-Streaming-Location-Events.md](/Users/kai/work/tinybots/devdocs/tinybots/sensara-adaptor/260107-Streaming-Location-Events.md) |
+| `LastLocationResponse` | Real-time location updates from sensors | ❌ Not implemented | [260107-Streaming-Location-Events.md](/Users/kai/work/tinybots/tinybots/devdocs/tinybots/sensara-adaptor/260107-Streaming-Location-Events.md) |
 
 **Hiện tại Location Events sử dụng POLLING** (qua `LocationPoller`, `ActivityPoller`), không phải streaming.
 
@@ -206,7 +206,7 @@ export enum TinybotsEvent {
 **1.3 Publish New Version**
 
 ```bash
-cd /Users/kai/work/tinybots/tiny-internal-services
+cd /Users/kai/work/tinybots/tinybots/tiny-internal-services
 # Update version in package.json (e.g., 1.23.0 → 1.24.0)
 yarn build
 yarn publish  # or follow your team's release process
@@ -256,7 +256,7 @@ public static convertEvent(event: SensaraEvent): IncomingEventBodyDto | null {
 **Update Dependency:**
 
 ```bash
-cd /Users/kai/work/tinybots/sensara-adaptor
+cd /Users/kai/work/tinybots/tinybots/sensara-adaptor
 # Update package.json: "tiny-internal-services": "^1.24.0"
 yarn install
 ```
@@ -298,7 +298,7 @@ const CustomConfigs: {
 **4.2 Generate Event Schema**
 
 ```bash
-cd /Users/kai/work/tinybots/megazord-events
+cd /Users/kai/work/tinybots/tinybots/megazord-events
 yarn generate:schemas
 ```
 
@@ -317,7 +317,7 @@ yarn generate:schemas
 **4.3 Update Dependency:**
 
 ```bash
-cd /Users/kai/work/tinybots/megazord-events
+cd /Users/kai/work/tinybots/tinybots/megazord-events
 # Update package.json: "tiny-internal-services": "^1.24.0"
 yarn install
 ```
@@ -399,7 +399,7 @@ it('should handle a DOOR_OPEN_TOO_LONG notification event', async () => {
 
 ```bash
 # From project root
-cd /Users/kai/work/tinybots
+cd /Users/kai/work/tinybots/tinybots
 
 # Run sensara-adaptor tests
 just -f devtools/Justfile test-sensara-adaptor

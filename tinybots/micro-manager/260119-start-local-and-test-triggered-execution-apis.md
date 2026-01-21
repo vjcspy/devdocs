@@ -17,7 +17,7 @@
 Chạy từ repo root `tinybots/`:
 
 ```bash
-cd devtools
+cd devtools/tinybots/local
 just start-micro-manager
 ```
 
@@ -38,7 +38,7 @@ Seed scope: `micro-manager-triggered`
 Chạy từ repo root `tinybots/`:
 
 ```bash
-cd devtools && npm run generate && npm run seed:clean && npm run seed -- --scope=micro-manager-triggered
+cd devtools/tinybots/local && npm run generate && npm run seed:clean && npm run seed -- --scope=micro-manager-triggered
 ```
 
 Seed này tạo các record deterministic để dùng cho curl:
@@ -55,7 +55,7 @@ Seed này tạo các record deterministic để dùng cho curl:
 ### Option A (khuyến nghị): chạy trong Docker (DevTools)
 
 ```bash
-cd devtools
+cd devtools/tinybots/local
 just dev-micro-manager
 ```
 
@@ -139,6 +139,9 @@ curl -s \
   -H "x-authenticated-userid: 1" | jq .
 ```
 
+Note:
+- `executedAt` trong response list là timestamp lúc hệ thống ghi nhận execution (không nhất thiết trùng với `executedAt` của từng step trong payload PUT ở 4.1).
+
 Expected:
 - `200 OK`
 - `triggeredExecutions` chứa ít nhất 1 item (được tạo bởi curl PUT phía trên) và `trigger.triggerName = "seed.micro-manager.trigger"`.
@@ -155,19 +158,18 @@ Example:
 
 ```bash
 curl -s \
-  "http://localhost:18080/v6/scripts/user/robots/1/executions/6" \
+  "http://localhost:18080/v6/scripts/user/robots/1/executions/<executionId>" \
   -H "x-consumer-id: f4823fd5-1f11-4b4a-9959-70701327bfe4" \
   -H "x-consumer-username: tinybots-users" \
   -H "x-authenticated-scope: user" \
   -H "x-authenticated-userid: 1" | jq .
 ```
 
+Trong đó:
+- `<executionId>` = `triggeredExecutions[0].triggeredExecutionId` từ response của API list ở 4.2.
+
 Expected:
 - `200 OK`
 - `executionType = "triggered"`
 - Có `trigger.triggerName = "seed.micro-manager.trigger"`
 - `scriptExecutionSteps` chứa các step executions đã gửi lên ở curl PUT (4.1)
-
-
-
-I always feel supported by team whenever I need help.

@@ -24,15 +24,23 @@ All projects follow this standard directory structure:
 │   │   ├── commands/           # Custom agent commands
 │   │   ├── templates/          # Document templates (plans, releases, etc.)
 │   │   └── rules/              # Working protocols & guidelines
+│   ├── misc/                   # Cross-domain documentation
+│   │   └── devtools/           # DevTools documentation
+│   │       └── <DOMAIN>/       # Per-domain devtools docs
+│   │           └── OVERVIEW.md # DevTools overview for the domain
 │   └── <DOMAIN>/               # Domain-specific documentation
+│       ├── OVERVIEW.md         # **Global overview** for the entire domain/project
 │       └── <REPO_NAME>/        # Per-repo context & plans
-│           └── OVERVIEW.md     # Repository overview & business context
+│           └── OVERVIEW.md     # Repository-specific overview & business context
 │
-├── devtools/                   # Development tools & utilities
-│   ├── scripts/                # Helper scripts for AI Agent & developers
-│   ├── docker/                 # Docker configurations for local env
-│   ├── seed/                   # Data seeding scripts
-│   └── README.md               # Devtools usage documentation
+├── devtools/                   # Development tools & utilities (multi-domain)
+│   ├── common/                 # Shared tools across domains
+│   │   └── cli/                # Shared CLI tools
+│   └── <DOMAIN>/               # Domain-specific devtools
+│       └── local/              # Local development infrastructure
+│           ├── docker-compose.yaml
+│           ├── Justfile        # Just commands for the domain
+│           └── ...
 │
 └── <DOMAIN>/                   # Source code repositories
     ├── <REPO_1>/               # Individual repository
@@ -66,11 +74,14 @@ Determine the task category:
 
 ### Step 2: Load Required Context (Conditional)
 
-| Condition | Required Action |
-|-----------|-----------------|
-| Working on a **specific repository** | **MUST** read `devdocs/<DOMAIN>/<REPO_NAME>/OVERVIEW.md` first |
-| Task is **Implementation/Refactoring** | **MUST** read `devdocs/agent/rules/coding-standard-and-quality.md` |
-| Task involves **devtools** | Check `devtools/README.md` for available utilities |
+| # | Condition | Required Action |
+|---|-----------|-----------------|
+| 1 | Working on **any repo** within a domain | **MUST** read Global Overview: `devdocs/<DOMAIN>/OVERVIEW.md` first |
+| 2 | Working on a **specific repository** | **MUST** read Repo Overview: `devdocs/<DOMAIN>/<REPO_NAME>/OVERVIEW.md` |
+| 3 | Task is **Implementation/Refactoring** | **MUST** read `devdocs/agent/rules/coding-standard-and-quality.md` |
+| 4 | Task involves **local dev/testing** for a domain | **MUST** read DevTools Overview: `devdocs/misc/devtools/<DOMAIN>/OVERVIEW.md` |
+
+> **Loading Order:** Always load in sequence: Global Overview (#1) → Repo Overview (#2) → Other rules (#3, #4)
 
 > **CRITICAL:** If a required file does not exist or is empty, **STOP** and ask the user to provide the missing context before proceeding.
 
@@ -111,10 +122,11 @@ To keep context lean, additional rules are loaded **only when needed**:
 
 ### Task: `Local Development / Testing`
 
-- **Check devtools:** Look in `devtools/` for:
+- **Pre-requisite:** Read DevTools Overview: `devdocs/misc/devtools/<DOMAIN>/OVERVIEW.md`
+- **Check devtools:** Look in `devtools/<DOMAIN>/local/` for:
   - Docker compose files for local environment
+  - Justfile with available commands
   - Seed scripts for test data
-  - Helper scripts for common operations
 - **Run Commands:** Use available scripts before creating new ones.
 
 ### Task: `Default / Other`
