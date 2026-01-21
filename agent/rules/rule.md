@@ -65,6 +65,7 @@ All projects follow this standard directory structure:
 ### Step 1: Identify Task Type
 
 Determine the task category:
+
 - `Plan` — Creating implementation plans
 - `Implementation` — Writing/modifying code
 - `Refactoring` — Restructuring existing code
@@ -88,6 +89,7 @@ Determine the task category:
 ### Step 3: Verify Context
 
 Before proceeding, confirm you have:
+
 - [ ] Understood the task scope
 - [ ] Loaded all required context files (per Step 2)
 - [ ] Identified the target paths/files
