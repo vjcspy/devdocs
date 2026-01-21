@@ -50,6 +50,65 @@
 - **SensaraApiService & Authentication:** OAuth password-grant via per-env auth services; REST calls for notifications, stream registration/deletion, stream fetch with signed `Last-Event-ID`, and last location queries. Retries once for notification/stream operations; last-location retries disabled pending upstream fixes.
 - **Repositories:** `LocationRepository` stores pollers (`LOCATION`/`ACTIVITY`) with optional `location_label`; `SensaraEventRepository` lazily ensures event schemas and exposes reports/resume IDs; `PilotReportRepository` writes analytics telemetry with optional `createdSince` filtering.
 
+## SSE Streaming Architecture
+
+### Event Flow: Sensara → TinyBots
+
+```
+Sensara API (V3)
+    │
+    │ SSE Stream (NotificationResponse, AdlEventResponse, StateExtramuralResponse)
+    ▼
+sensara-adaptor
+├── server.ts → runEventsJob()
+├── SensaraEventsJob → creates SensaraEventSource
+├── SensaraApiService.registerStream() → POST /v3/streams/registrations
+│   └── dataTypes: ['NotificationResponse', 'AdlEventResponse', 'StateExtramuralResponse']
+├── SensaraEventSource._registerEvents() → addEventListener('NotificationResponse', ...)
+├── SensaraEventsJob.handleEvent() → receives event
+├── SensaraEvent.fromEvent() → extracts event type (e.g., notificationType for notifications)
+└── SensaraEventsJob.convertEvent() → maps to TinybotsEvent
+    │
+    │ EventService.postEvent()
+    ▼
+megazord-events
+├── Store incoming event
+├── Fan out to subscriptions
+└── Trigger if hasTrigger=true
+```
+
+### SSE Streaming Status
+
+| Event Type | Description | Status |
+|------------|-------------|--------|
+| `NotificationResponse` | Sensara alarms/notifications (ST_*, LT_*, TA_*) | ✅ Implemented |
+| `AdlEventResponse` | Activities of Daily Living (TOILETING, EATING, SLEEPING, etc.) | ✅ Implemented |
+| `StateExtramuralResponse` | State changes (BedState, etc.) | ✅ Implemented |
+| `LastLocationResponse` | Real-time location updates | ❌ Not implemented (uses polling) |
+
+### Notification Type Mapping (SensaraEventsJob.convertEvent)
+
+| Sensara NotificationType | TinybotsEvent |
+|--------------------------|---------------|
+| `ST_ACTIVITY_SHORT_INACTIVITY` | `SHORT_INACTIVITY` |
+| `ST_ACTIVITY_INACTIVITY` | `SUSPICIOUS_INACTIVITY` |
+| `ST_INOUT_OUT_OF_BED` | `EARLY_OUT_OF_BED` |
+| `ST_NOT_RETURNED_TO_BED` | `NOT_RETURNED_TO_BED` |
+| `ST_SLEEPING_AWAKE_DELAYED` | `LONGER_IN_BED_SHORT` |
+| `ST_SLEEPING_AWAKE_LARGE_DELAY` | `LONGER_IN_BED_LONG` |
+
+### ADL Event Type Mapping
+
+| Sensara AdlEventType | TinybotsEvent |
+|----------------------|---------------|
+| `INSIDE` | `INSIDE_HOME` |
+| `OUTSIDE` | `OUTSIDE_HOME` |
+| `EATING_GENERAL` / `BREAKFAST` / `EATING` | `EATING_ACTIVITY` |
+| `TOILETING` | `TOILET_ACTIVITY` |
+| `BATHROOM_VISIT` | `BATHROOM_ACTIVITY` |
+| `SLEEPING_ASLEEP` | `IN_BED` |
+| `SLEEPING_AWAKE` | `OUT_OF_BED` |
+
 ## External Dependencies & Cross-Service Contracts
 - Sensara REST/SSE hosts (main + test) for notifications, stream registration/data, and last-location lookups; OAuth credentials per environment.
 - TinyBots Event Service (`services.eventServiceAddress`) for posting incoming events tied to robot IDs.
