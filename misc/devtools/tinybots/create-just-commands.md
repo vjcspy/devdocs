@@ -237,7 +237,7 @@ Check if the test runner service already exists in `devtools/docker-compose.yaml
   <repo-name>:
     image: node:22-alpine
     volumes:
-      - /Users/kai/work/tinybots/tinybots/<repo-name>:/usr/src/app
+      - /Users/kai/work/tinybots/tinybots/backend/<repo-name>:/usr/src/app
     labels:
       - <repo-name>
     environment:
@@ -456,7 +456,7 @@ docker attach $(docker ps -q --filter=label=micro-manager)
   micro-manager:
     image: node:22-alpine
     volumes:
-      - /Users/kai/work/tinybots/tinybots/micro-manager:/usr/src/app
+      - /Users/kai/work/tinybots/tinybots/backend/micro-manager:/usr/src/app
     labels:
       - micro-manager
     environment:
@@ -645,7 +645,7 @@ dev-<repo>:
   <repo-name>:
     image: node:22-alpine
     volumes:
-      - /Users/kai/work/tinybots/tinybots/<repo-name>:/usr/src/app
+      - /Users/kai/work/tinybots/tinybots/backend/<repo-name>:/usr/src/app
     labels:
       - <repo-name>
     environment:

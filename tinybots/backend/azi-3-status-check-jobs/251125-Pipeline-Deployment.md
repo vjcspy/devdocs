@@ -12,12 +12,12 @@
 
 ## References
 
-- Source pattern: `/Users/kai/work/tinybots/tinybots/megazord-events/ci/`
-- Reference pattern: `/Users/kai/work/tinybots/tinybots/azi-3-status-check/ci/`
-- Target repository: `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/`
-- Template document: `/Users/kai/work/tinybots/tinybots/devdocs/agent/TEMPLATE.md`
-- Global standard: `/Users/kai/work/tinybots/tinybots/devdocs/tinybots/OVERVIEW.md`
-- Repo standard: `/Users/kai/work/tinybots/tinybots/devdocs/tinybots/azi-3-status-check-jobs/OVERVIEW.md`
+- Source pattern: `/Users/kai/work/tinybots/tinybots/backend/megazord-events/ci/`
+- Reference pattern: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check/ci/`
+- Target repository: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/`
+- Template document: `/Users/kai/work/tinybots/devdocs/agent/TEMPLATE.md`
+- Global standard: `/Users/kai/work/tinybots/devdocs/tinybots/backendOVERVIEW.md`
+- Repo standard: `/Users/kai/work/tinybots/devdocs/tinybots/backendazi-3-status-check-jobs/OVERVIEW.md`
 
 ## User Requirements
 
@@ -83,7 +83,7 @@ azi-3-status-check-jobs/
 
 #### Step 1: Tạo Dockerfile
 
-**File**: `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/Dockerfile`
+**File**: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/Dockerfile`
 
 **Nội dung**: Multi-stage build với builder và production stages
 
@@ -158,7 +158,7 @@ ENTRYPOINT ["/docker-entrypoint.sh"]
 
 #### Step 2: Tạo .dockerignore
 
-**File**: `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/.dockerignore`
+**File**: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/.dockerignore`
 
 **Nội dung**: Exclude unnecessary files khỏi build context
 
@@ -182,7 +182,7 @@ README.md
 
 ##### 3.1: ssh.config
 
-**File**: `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/ssh.config`
+**File**: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/ssh.config`
 
 **Nội dung**: SSH configuration cho Bitbucket access
 
@@ -198,7 +198,7 @@ host bitbucket.org
 
 ##### 3.2: docker-entrypoint.sh
 
-**File**: `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/docker-entrypoint.sh`
+**File**: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/docker-entrypoint.sh`
 
 **Nội dung**: Container entrypoint script
 
@@ -213,7 +213,7 @@ yarn start
 
 ##### 3.3: build.sh
 
-**File**: `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/build.sh`
+**File**: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/build.sh`
 
 **Nội dung**: Local build script cho Docker image
 
@@ -245,7 +245,7 @@ docker build -t azi-3-status-check-jobs:local --build-arg DEPLOYMENT_KEY="$DEPLO
 
 ##### 3.4: concourse-build.sh
 
-**File**: `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/concourse-build.sh`
+**File**: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/concourse-build.sh`
 
 **Nội dung**: Concourse build wrapper
 
@@ -265,7 +265,7 @@ docker save azi-3-status-check-jobs:local >../azi-3-status-check-jobs/azi-3-stat
 
 ##### 3.5: build-azi-3-status-check-jobs.yml
 
-**File**: `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/build-azi-3-status-check-jobs.yml`
+**File**: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/build-azi-3-status-check-jobs.yml`
 
 **Nội dung**: Concourse task definition cho build
 
@@ -303,7 +303,7 @@ run:
 
 ##### 4.1: docker-compose.yml
 
-**File**: `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/docker-compose.yml`
+**File**: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/docker-compose.yml`
 
 **Nội dung**: Minimal Docker Compose cho test environment
 
@@ -330,7 +330,7 @@ services:
 
 ##### 4.2: node-verify.sh
 
-**File**: `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/node-verify.sh`
+**File**: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/node-verify.sh`
 
 **Nội dung**: Setup Node environment và run tests
 
@@ -363,7 +363,7 @@ yarn test
 
 ##### 4.3: test.sh
 
-**File**: `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/test.sh`
+**File**: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/test.sh`
 
 **Nội dung**: Run tests với Docker Compose
 
@@ -390,7 +390,7 @@ docker attach $(docker ps -q --filter=label=azi-3-status-check-jobs)
 
 ##### 4.4: local-test.sh
 
-**File**: `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/local-test.sh`
+**File**: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/local-test.sh`
 
 **Nội dung**: Local test runner wrapper
 
@@ -406,7 +406,7 @@ ci/test.sh
 
 ##### 4.5: reset.sh
 
-**File**: `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/reset.sh`
+**File**: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/reset.sh`
 
 **Nội dung**: Cleanup Docker resources
 
@@ -423,7 +423,7 @@ fi
 
 ##### 4.6: concourse-test.sh
 
-**File**: `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/concourse-test.sh`
+**File**: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/concourse-test.sh`
 
 **Nội dung**: Concourse test wrapper
 
@@ -454,7 +454,7 @@ echo $(cat ../azi-3-status-check-jobs/version)
 
 ##### 4.7: test-azi-3-status-check-jobs.yml
 
-**File**: `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/test-azi-3-status-check-jobs.yml`
+**File**: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/test-azi-3-status-check-jobs.yml`
 
 ```yaml
 ---
@@ -552,7 +552,7 @@ jobs:
 1. **Build Docker image locally**:
 
    ```bash
-   cd /Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs
+   cd /Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs
    
    # Set deployment key
    export DEPLOYMENT_KEY="$(cat ~/.ssh/id_rsa)"
@@ -614,21 +614,21 @@ Implementation completed on 2025-11-25
 
 **Files created** (14 files total):
 
-1. ✅ `/Users/kai/work/tinybots/tinybots/devdocs/tinybots/azi-3-status-check-jobs/251125-Pipeline-Deployment.md` - This plan
-2. ✅ `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/Dockerfile`
-3. ✅ `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/.dockerignore`
-4. ✅ `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/ssh.config`
-5. ✅ `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/docker-entrypoint.sh`
-6. ✅ `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/build.sh`
-7. ✅ `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/concourse-build.sh`
-8. ✅ `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/build-azi-3-status-check-jobs.yml`
-9. ✅ `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/docker-compose.yml`
-10. ✅ `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/node-verify.sh`
-11. ✅ `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/test.sh`
-12. ✅ `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/local-test.sh`
-13. ✅ `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/reset.sh`
-14. ✅ `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/concourse-test.sh`
-15. ✅ `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/ci/test-azi-3-status-check-jobs.yml`
+1. ✅ `/Users/kai/work/tinybots/devdocs/tinybots/backendazi-3-status-check-jobs/251125-Pipeline-Deployment.md` - This plan
+2. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/Dockerfile`
+3. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/.dockerignore`
+4. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/ssh.config`
+5. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/docker-entrypoint.sh`
+6. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/build.sh`
+7. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/concourse-build.sh`
+8. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/build-azi-3-status-check-jobs.yml`
+9. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/docker-compose.yml`
+10. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/node-verify.sh`
+11. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/test.sh`
+12. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/local-test.sh`
+13. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/reset.sh`
+14. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/concourse-test.sh`
+15. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/test-azi-3-status-check-jobs.yml`
 
 **All shell scripts have executable permissions set.**
 

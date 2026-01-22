@@ -159,7 +159,7 @@ Intelligence Database Service**
   atlas:
     image: node:22-alpine
     volumes:
-      - /Users/kai/work/tinybots/tinybots/atlas:/usr/src/app
+      - /Users/kai/work/tinybots/tinybots/backend/atlas:/usr/src/app
     labels:
       - "atlas-service"
     environment:

@@ -65,13 +65,6 @@
 - Database: MySQL backing all event tables; repositories use prepared statements and connection caching for schema/provider polling.
 - Shared libs: `tiny-backend-tools` (DI, HTTP middleware, cron, DB repo base, validation), `tiny-specs` (HTTP schema validators in tests), `tiny-internal-services` (event enums).
 
-## Testing & Quality Gates
-- Test runner: LƯU Ý LÀ CHỈ CHẠY ĐƯỢC TEST bằng cách sử dụng docker, hãy run command sau: `cd /Users/kai/work/tinybots/tinybots && just -f devtools/Justfile test-megazord-events` , có thể tối ưu bằng cách chỉ lấy 100 rows cuối cùng, có thể set timeout vì test chạy khá lâu khoảng 2-3 phút.
-- Integration: `test/controllers/*IT.ts` cover event filtering/creation, academy simulation, subscription lifecycle, SQS notifications (including queue-suffix routing), trigger calls, and Sensara adaptor expectations (via `nock`).
-- Unit: `test/services` cover caching services, schema loader, adaptor registry, trigger client, outgoing-event creation, and queue validation; repository tests validate SQL mappers; model tests ensure DTO validation.
-- Fixtures/helpers: `test/helpers/DbSetup.ts`, `PermissionDbSetup.ts` seed DB and permissions; uses `tiny-backend-testing-tools` and `tiny-specs` validators.
-- CI harness: `ci/test.sh` spins Docker Compose stack (MySQL, typ-e schema generator, Checkpoint, Prowl) and runs service containers; AWS ECR login required for images.
-
 ## Gap Analysis
 - Error handling for event fan-out is muted: `handleNewlyAddedIncomingEvent` swallows exceptions without logging; failures could silently drop notifications.
 - TriggerService lacks context propagation, retries, and timeouts; transient failures could block trigger-type subscriptions without fallback or telemetry.

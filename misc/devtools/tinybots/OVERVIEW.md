@@ -474,7 +474,7 @@ lsof -i :1123
 ## Related Documentation
 
 - **[create-just-commands.md](create-just-commands.md)** - Detailed guide for adding integration test support for new repositories
-- **[AGENTS.md](/Users/kai/work/tinybots/tinybots/AGENTS.md)** - TinyBots engineering protocols and AI agent guidelines
+- **[AGENTS.md](/Users/kai/work/tinybots/AGENTS.md)** - TinyBots engineering protocols and AI agent guidelines
 - **[devdocs/tinybots/OVERVIEW.md](../OVERVIEW.md)** - Global TinyBots project overview
 
 ---

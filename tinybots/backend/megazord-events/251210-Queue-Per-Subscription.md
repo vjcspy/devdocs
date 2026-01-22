@@ -2,14 +2,14 @@
 
 ## References
 
-- `/Users/kai/work/tinybots/tinybots/megazord-events/src/services/EventSubscriptionService.ts` - Main subscription service handling event fan-out
-- `/Users/kai/work/tinybots/tinybots/megazord-events/src/models/DTOs/CreateSubscriptionDto.ts` - Subscription creation DTO
-- `/Users/kai/work/tinybots/tinybots/megazord-events/src/models/domains/SubscriptionDomain.ts` - Subscription domain model
-- `/Users/kai/work/tinybots/tinybots/megazord-events/src/models/SQSConfig.ts` - SQS configuration models
-- `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/config/custom-environment-variables.json` - Jobs consumer configuration
-- `/Users/kai/work/tinybots/tinybots/tiny-internal-services/lib/services/EventService.ts` - Shared library event service
-- `/Users/kai/work/tinybots/tinybots/devdocs/tinybots/OVERVIEW.md` - Global TinyBots architecture
-- `/Users/kai/work/tinybots/tinybots/devdocs/tinybots/megazord-events/OVERVIEW.md` - Megazord events service documentation
+- `/Users/kai/work/tinybots/tinybots/backend/megazord-events/src/services/EventSubscriptionService.ts` - Main subscription service handling event fan-out
+- `/Users/kai/work/tinybots/tinybots/backend/megazord-events/src/models/DTOs/CreateSubscriptionDto.ts` - Subscription creation DTO
+- `/Users/kai/work/tinybots/tinybots/backend/megazord-events/src/models/domains/SubscriptionDomain.ts` - Subscription domain model
+- `/Users/kai/work/tinybots/tinybots/backend/megazord-events/src/models/SQSConfig.ts` - SQS configuration models
+- `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/config/custom-environment-variables.json` - Jobs consumer configuration
+- `/Users/kai/work/tinybots/tinybots/backend/tiny-internal-services/lib/services/EventService.ts` - Shared library event service
+- `/Users/kai/work/tinybots/devdocs/tinybots/backendOVERVIEW.md` - Global TinyBots architecture
+- `/Users/kai/work/tinybots/devdocs/tinybots/backendmegazord-events/OVERVIEW.md` - Megazord events service documentation
 
 ## User Requirements
 
@@ -179,7 +179,7 @@ ALTER TABLE event_subscription DROP COLUMN queue;
 
 **Task:** Add queue suffix support to subscription data structures
 
-**File:** `/Users/kai/work/tinybots/tinybots/megazord-events/src/models/DTOs/CreateSubscriptionDto.ts`
+**File:** `/Users/kai/work/tinybots/tinybots/backend/megazord-events/src/models/DTOs/CreateSubscriptionDto.ts`
 
 **Changes:**
 
@@ -225,7 +225,7 @@ export class CreateSubscriptionDto {
 }
 ```
 
-**File:** `/Users/kai/work/tinybots/tinybots/megazord-events/src/models/domains/SubscriptionDomain.ts`
+**File:** `/Users/kai/work/tinybots/tinybots/backend/megazord-events/src/models/domains/SubscriptionDomain.ts`
 
 **Changes:**
 
@@ -288,7 +288,7 @@ export class SubscriptionDomain extends BaseDomain {
 
 **Task:** Add queue suffix parameter support in repository operations
 
-**File:** `/Users/kai/work/tinybots/tinybots/megazord-events/src/repositories/EventSubscriptionsRepository.ts`
+**File:** `/Users/kai/work/tinybots/tinybots/backend/megazord-events/src/repositories/EventSubscriptionsRepository.ts`
 
 **Changes:**
 
@@ -341,7 +341,7 @@ async getAll(filters: ...): Promise<SubscriptionDomain[]> {
 
 **Task:** Implement queue address construction logic based on subscription queue suffix
 
-**File:** `/Users/kai/work/tinybots/tinybots/megazord-events/src/services/EventSubscriptionService.ts`
+**File:** `/Users/kai/work/tinybots/tinybots/backend/megazord-events/src/services/EventSubscriptionService.ts`
 
 **Changes:**
 
@@ -518,7 +518,7 @@ private async notifySubscription<T extends BaseDomain>(
 
 **Note:** `azi-3-status-check` service is explicitly OUT OF SCOPE and requires NO CHANGES. It will continue using the default queue (no suffix).
 
-**File:** `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/src/infrastructure/MegazordEventClient.ts`
+**File:** `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/src/infrastructure/MegazordEventClient.ts`
 
 **Changes:**
 
@@ -539,7 +539,7 @@ async subscribe(
 }
 ```
 
-**File:** `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/src/services/MonitoringScheduler.ts`
+**File:** `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/src/services/MonitoringScheduler.ts`
 
 **Changes:**
 
@@ -576,7 +576,7 @@ private async initializeSessionForRule(
 }
 ```
 
-**File:** `/Users/kai/work/tinybots/tinybots/azi-3-status-check-jobs/config/default.json`
+**File:** `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/config/default.json`
 
 **Changes (if not already present):**
 
@@ -640,7 +640,7 @@ async createSubscription(
 
 **Task:** Add comprehensive tests for queue routing functionality
 
-**File:** `/Users/kai/work/tinybots/tinybots/megazord-events/test/controllers/EventSubscriptionControllerIT.ts`
+**File:** `/Users/kai/work/tinybots/tinybots/backend/megazord-events/test/controllers/EventSubscriptionControllerIT.ts`
 
 **New Test Cases:**
 ```typescript
@@ -771,7 +771,7 @@ describe('Event fan-out with custom queues', () => {
 })
 ```
 
-**File:** `/Users/kai/work/tinybots/tinybots/megazord-events/test/services/EventSubscriptionServiceTest.ts`
+**File:** `/Users/kai/work/tinybots/tinybots/backend/megazord-events/test/services/EventSubscriptionServiceTest.ts`
 
 **New Unit Test Cases:**
 ```typescript
@@ -844,7 +844,7 @@ azi-3-status-check-jobs:
 
 2. **localstack initialization** - Create queues with suffix pattern:
 
-**File:** `/Users/kai/work/tinybots/tinybots/devtools/localstack/init-queues.sh` (update or create)
+**File:** `/Users/kai/work/tinybots/devtools/tinybots/local/localstack/init-queues.sh` (update or create)
 
 ```bash
 #!/bin/bash
@@ -890,7 +890,7 @@ aws sqs create-queue --queue-name status-queue-staging-azi-3-status-check-jobs
 
 **Task:** Update service documentation to reflect queue suffix feature
 
-**File:** `/Users/kai/work/tinybots/tinybots/devdocs/tinybots/megazord-events/OVERVIEW.md`
+**File:** `/Users/kai/work/tinybots/devdocs/tinybots/backendmegazord-events/OVERVIEW.md`
 
 **Section to Add/Update:**
 
@@ -952,7 +952,7 @@ const subscription = await megazordEventClient.subscribe(
 - No breaking changes to API contracts
 ```
 
-**File:** `/Users/kai/work/tinybots/tinybots/devdocs/tinybots/azi-3-status-check-jobs/OVERVIEW.md`
+**File:** `/Users/kai/work/tinybots/devdocs/tinybots/backendazi-3-status-check-jobs/OVERVIEW.md`
 
 **Section to Add:**
 
@@ -974,7 +974,7 @@ This prevents message collision with `azi-3-status-check` service that subscribe
 - Examples show correct queue address pattern
 - Migration notes cover all scenarios
 
-**File:** `/Users/kai/work/tinybots/tinybots/devdocs/tinybots/azi-3-status-check-jobs/OVERVIEW.md`
+**File:** `/Users/kai/work/tinybots/devdocs/tinybots/backendazi-3-status-check-jobs/OVERVIEW.md`
 
 **Section to Add:**
 
