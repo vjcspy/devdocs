@@ -14,35 +14,35 @@
 
 ### Automation Core
 
-- azi-3-status-check: Status check API and evaluation workflows (devdocs/tinybots/tinybots/azi-3-status-check/OVERVIEW.md)
-- eve: Schedule management service for Tessa robots (devdocs/tinybots/tinybots/eve/OVERVIEW.md)
-- herbie: Background cleanup of expired user and robot accounts (devdocs/tinybots/tinybots/herbie/OVERVIEW.md)
-- m-o-triggers: Trigger scheduling and queue fan-out (devdocs/tinybots/tinybots/m-o-triggers/OVERVIEW.md)
-- megazord-events: Event intake and fan-out for robot telemetry (devdocs/tinybots/tinybots/megazord-events/OVERVIEW.md)
-- micro-manager: Robot script lifecycle and execution service (devdocs/tinybots/tinybots/micro-manager/OVERVIEW.md)
-- sensara-adaptor: Sensara telemetry bridge into TinyBots events (devdocs/tinybots/tinybots/sensara-adaptor/OVERVIEW.md)
-- wadsworth: Speech interaction service mapping voice commands to scripts (devdocs/tinybots/tinybots/wadsworth/OVERVIEW.md)
-- wonkers-nedap: Nedap ONS integration syncing orders and returns into TaaS flows (devdocs/tinybots/tinybots/wonkers-nedap/OVERVIEW.md)
+- azi-3-status-check: Status check API and evaluation workflows (devdocs/tinybots/backend/azi-3-status-check/OVERVIEW.md)
+- eve: Schedule management service for Tessa robots (devdocs/tinybots/backend/eve/OVERVIEW.md)
+- herbie: Background cleanup of expired user and robot accounts (devdocs/tinybots/backend/herbie/OVERVIEW.md)
+- m-o-triggers: Trigger scheduling and queue fan-out (devdocs/tinybots/backend/m-o-triggers/OVERVIEW.md)
+- megazord-events: Event intake and fan-out for robot telemetry (devdocs/tinybots/backend/megazord-events/OVERVIEW.md)
+- micro-manager: Robot script lifecycle and execution service (devdocs/tinybots/backend/micro-manager/OVERVIEW.md)
+- sensara-adaptor: Sensara telemetry bridge into TinyBots events (devdocs/tinybots/backend/sensara-adaptor/OVERVIEW.md)
+- wadsworth: Speech interaction service mapping voice commands to scripts (devdocs/tinybots/backend/wadsworth/OVERVIEW.md)
+- wonkers-nedap: Nedap ONS integration syncing orders and returns into TaaS flows (devdocs/tinybots/backend/wonkers-nedap/OVERVIEW.md)
 
 ### Experience & Business Apps
 
-- wonkers-api: Dashboard REST API for customers and admins (devdocs/tinybots/tinybots/wonkers-api/OVERVIEW.md)
-- wonkers-accounts: Accounts, permissions, and login flows (devdocs/tinybots/tinybots/wonkers-accounts/OVERVIEW.md)
-- wonkers-robots: Robot inventory and admin management (devdocs/tinybots/tinybots/wonkers-robots/OVERVIEW.md)
-- wonkers-taas-orders: TaaS order lifecycle management (devdocs/tinybots/tinybots/wonkers-taas-orders/OVERVIEW.md)
-- wonkers-graphql: GraphQL gateway for reporting across TinyBots data (devdocs/tinybots/tinybots/wonkers-graphql/OVERVIEW.md)
-- wonkers-ecd: Ecare and ZSP notification bridge into TaaS order flows (devdocs/tinybots/tinybots/wonkers-ecd/OVERVIEW.md)
+- wonkers-api: Dashboard REST API for customers and admins (devdocs/tinybots/backend/wonkers-api/OVERVIEW.md)
+- wonkers-accounts: Accounts, permissions, and login flows (devdocs/tinybots/backend/wonkers-accounts/OVERVIEW.md)
+- wonkers-robots: Robot inventory and admin management (devdocs/tinybots/backend/wonkers-robots/OVERVIEW.md)
+- wonkers-taas-orders: TaaS order lifecycle management (devdocs/tinybots/backend/wonkers-taas-orders/OVERVIEW.md)
+- wonkers-graphql: GraphQL gateway for reporting across TinyBots data (devdocs/tinybots/backend/wonkers-graphql/OVERVIEW.md)
+- wonkers-ecd: Ecare and ZSP notification bridge into TaaS order flows (devdocs/tinybots/backend/wonkers-ecd/OVERVIEW.md)
 
 ### Shared Libraries, Tooling & Schemas
 
-- atlas: Batch jobs that anonymise and copy typ-e data to the intelligence database (devdocs/tinybots/tinybots/atlas/OVERVIEW.md)
-- cves-scan: Vulnerability scan tooling and CI scripts (devdocs/tinybots/tinybots/cves-scan/OVERVIEW.md)
-- tiny-backend-tools: Shared Node.js service scaffolding and middleware (devdocs/tinybots/tinybots/tiny-backend-tools/OVERVIEW.md)
-- tiny-internal-services: Shared DTOs and HTTP clients for TinyBots services (devdocs/tinybots/tinybots/tiny-internal-services/OVERVIEW.md)
-- tiny-internal-services-mocks: Mocks and stubs for integration tests (devdocs/tinybots/tinybots/tiny-internal-services-mocks/OVERVIEW.md)
-- tiny-specs: OpenAPI specs and generated validators (devdocs/tinybots/tinybots/tiny-specs/OVERVIEW.md)
-- typ-e: MySQL schema and Flyway migrations for robot scheduling and automation data (devdocs/tinybots/tinybots/typ-e/OVERVIEW.md)
-- wonkers-db: MySQL schema and Flyway migrations for dashboard and TaaS order data (devdocs/tinybots/tinybots/wonkers-db/OVERVIEW.md)
+- atlas: Batch jobs that anonymise and copy typ-e data to the intelligence database (devdocs/tinybots/backend/atlas/OVERVIEW.md)
+- cves-scan: Vulnerability scan tooling and CI scripts (devdocs/tinybots/backend/cves-scan/OVERVIEW.md)
+- tiny-backend-tools: Shared Node.js service scaffolding and middleware (devdocs/tinybots/backend/tiny-backend-tools/OVERVIEW.md)
+- tiny-internal-services: Shared DTOs and HTTP clients for TinyBots services (devdocs/tinybots/backend/tiny-internal-services/OVERVIEW.md)
+- tiny-internal-services-mocks: Mocks and stubs for integration tests (devdocs/tinybots/backend/tiny-internal-services-mocks/OVERVIEW.md)
+- tiny-specs: OpenAPI specs and generated validators (devdocs/tinybots/backend/tiny-specs/OVERVIEW.md)
+- typ-e: MySQL schema and Flyway migrations for robot scheduling and automation data (devdocs/tinybots/backend/typ-e/OVERVIEW.md)
+- wonkers-db: MySQL schema and Flyway migrations for dashboard and TaaS order data (devdocs/tinybots/backend/wonkers-db/OVERVIEW.md)
 
 ## Cross-Service Data Flows
 
@@ -56,11 +56,11 @@
 
 ## Operational Notes & Testing
 
-- **Source Code Location:** All repositories are located at `tinybots/tinybots/<repo>/` (following `<PROJECT_NAME>/<DOMAIN>/<REPO_NAME>/` convention).
+- **Source Code Location:** All backend repositories are located at `tinybots/backend/<repo>/` (following `<PROJECT_NAME>/<DOMAIN>/<REPO_NAME>/` convention).
 - Most services are Node.js/TypeScript (Yarn); schema repos use Java/Maven.
 - Shared middleware and scaffolding live in tiny-backend-tools; shared clients and DTOs live in tiny-internal-services.
 - Run tests via the centralized DevTools commands from the workspace root: `just -f devtools/tinybots/local/Justfile test-<repo>`.
-- Keep repo overviews under `devdocs/tinybots/tinybots/<repo>/OVERVIEW.md` up to date; missing overviews should be added when the repo is actively worked on.
+- Keep repo overviews under `devdocs/tinybots/<DOMAIN>/<repo>/OVERVIEW.md` up to date; missing overviews should be added when the repo is actively worked on.
 
 ## DevTools Infrastructure
 
@@ -186,26 +186,26 @@ Repository Coverage Table
 
 | Repository | Service Group | Overview Path | Status |
 | --- | --- | --- | --- |
-| atlas | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tinybots/atlas/OVERVIEW.md | Present |
-| azi-3-status-check | Automation Core | devdocs/tinybots/tinybots/azi-3-status-check/OVERVIEW.md | Present |
-| cves-scan | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tinybots/cves-scan/OVERVIEW.md | Missing |
-| eve | Automation Core | devdocs/tinybots/tinybots/eve/OVERVIEW.md | Present |
-| herbie | Automation Core | devdocs/tinybots/tinybots/herbie/OVERVIEW.md | Missing |
-| m-o-triggers | Automation Core | devdocs/tinybots/tinybots/m-o-triggers/OVERVIEW.md | Present |
-| megazord-events | Automation Core | devdocs/tinybots/tinybots/megazord-events/OVERVIEW.md | Present |
-| micro-manager | Automation Core | devdocs/tinybots/tinybots/micro-manager/OVERVIEW.md | Present |
-| sensara-adaptor | Automation Core | devdocs/tinybots/tinybots/sensara-adaptor/OVERVIEW.md | Present |
-| wadsworth | Automation Core | devdocs/tinybots/tinybots/wadsworth/OVERVIEW.md | Present |
-| wonkers-nedap | Automation Core | devdocs/tinybots/tinybots/wonkers-nedap/OVERVIEW.md | Present |
-| wonkers-api | Experience & Business Apps | devdocs/tinybots/tinybots/wonkers-api/OVERVIEW.md | Present |
-| wonkers-accounts | Experience & Business Apps | devdocs/tinybots/tinybots/wonkers-accounts/OVERVIEW.md | Present |
-| wonkers-ecd | Experience & Business Apps | devdocs/tinybots/tinybots/wonkers-ecd/OVERVIEW.md | Present |
-| wonkers-graphql | Experience & Business Apps | devdocs/tinybots/tinybots/wonkers-graphql/OVERVIEW.md | Present |
-| wonkers-robots | Experience & Business Apps | devdocs/tinybots/tinybots/wonkers-robots/OVERVIEW.md | Present |
-| wonkers-taas-orders | Experience & Business Apps | devdocs/tinybots/tinybots/wonkers-taas-orders/OVERVIEW.md | Present |
-| tiny-backend-tools | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tinybots/tiny-backend-tools/OVERVIEW.md | Present |
-| tiny-internal-services | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tinybots/tiny-internal-services/OVERVIEW.md | Present |
-| tiny-internal-services-mocks | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tinybots/tiny-internal-services-mocks/OVERVIEW.md | Present |
-| tiny-specs | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tinybots/tiny-specs/OVERVIEW.md | Missing |
-| typ-e | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tinybots/typ-e/OVERVIEW.md | Present |
-| wonkers-db | Shared Libraries, Tooling & Schemas | devdocs/tinybots/tinybots/wonkers-db/OVERVIEW.md | Present |
+| atlas | Shared Libraries, Tooling & Schemas | devdocs/tinybots/backend/atlas/OVERVIEW.md | Present |
+| azi-3-status-check | Automation Core | devdocs/tinybots/backend/azi-3-status-check/OVERVIEW.md | Present |
+| cves-scan | Shared Libraries, Tooling & Schemas | devdocs/tinybots/backend/cves-scan/OVERVIEW.md | Missing |
+| eve | Automation Core | devdocs/tinybots/backend/eve/OVERVIEW.md | Present |
+| herbie | Automation Core | devdocs/tinybots/backend/herbie/OVERVIEW.md | Missing |
+| m-o-triggers | Automation Core | devdocs/tinybots/backend/m-o-triggers/OVERVIEW.md | Present |
+| megazord-events | Automation Core | devdocs/tinybots/backend/megazord-events/OVERVIEW.md | Present |
+| micro-manager | Automation Core | devdocs/tinybots/backend/micro-manager/OVERVIEW.md | Present |
+| sensara-adaptor | Automation Core | devdocs/tinybots/backend/sensara-adaptor/OVERVIEW.md | Present |
+| wadsworth | Automation Core | devdocs/tinybots/backend/wadsworth/OVERVIEW.md | Present |
+| wonkers-nedap | Automation Core | devdocs/tinybots/backend/wonkers-nedap/OVERVIEW.md | Present |
+| wonkers-api | Experience & Business Apps | devdocs/tinybots/backend/wonkers-api/OVERVIEW.md | Present |
+| wonkers-accounts | Experience & Business Apps | devdocs/tinybots/backend/wonkers-accounts/OVERVIEW.md | Present |
+| wonkers-ecd | Experience & Business Apps | devdocs/tinybots/backend/wonkers-ecd/OVERVIEW.md | Present |
+| wonkers-graphql | Experience & Business Apps | devdocs/tinybots/backend/wonkers-graphql/OVERVIEW.md | Present |
+| wonkers-robots | Experience & Business Apps | devdocs/tinybots/backend/wonkers-robots/OVERVIEW.md | Present |
+| wonkers-taas-orders | Experience & Business Apps | devdocs/tinybots/backend/wonkers-taas-orders/OVERVIEW.md | Present |
+| tiny-backend-tools | Shared Libraries, Tooling & Schemas | devdocs/tinybots/backend/tiny-backend-tools/OVERVIEW.md | Present |
+| tiny-internal-services | Shared Libraries, Tooling & Schemas | devdocs/tinybots/backend/tiny-internal-services/OVERVIEW.md | Present |
+| tiny-internal-services-mocks | Shared Libraries, Tooling & Schemas | devdocs/tinybots/backend/tiny-internal-services-mocks/OVERVIEW.md | Present |
+| tiny-specs | Shared Libraries, Tooling & Schemas | devdocs/tinybots/backend/tiny-specs/OVERVIEW.md | Missing |
+| typ-e | Shared Libraries, Tooling & Schemas | devdocs/tinybots/backend/typ-e/OVERVIEW.md | Present |
+| wonkers-db | Shared Libraries, Tooling & Schemas | devdocs/tinybots/backend/wonkers-db/OVERVIEW.md | Present |
