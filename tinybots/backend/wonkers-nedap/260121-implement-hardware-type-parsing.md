@@ -252,7 +252,7 @@ public async addConceptOrder (orderDto: ConceptOrderDto): Promise<ConceptOrderDt
 
 ### Phase 5: Integration Testing
 
-**Command:** `just -f devtools/Justfile test-wonkers-nedap`
+**Command:** `just -f devtools/tinybots/local/Justfile test-wonkers-nedap`
 
 - [ ] All existing tests pass
 - [ ] New tests for `hardwareType` parsing pass

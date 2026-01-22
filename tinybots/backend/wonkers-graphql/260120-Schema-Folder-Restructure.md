@@ -272,7 +272,7 @@ import { SensaraEventReportService } from '../../../../../../src/graphql/schema/
 cd wonkers-graphql && yarn build
 
 # Run tests
-just -f devtools/Justfile test-wonkers-graphql
+just -f devtools/tinybots/local/Justfile test-wonkers-graphql
 ```
 
 ## 📊 Summary of Results

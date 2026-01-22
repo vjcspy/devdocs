@@ -196,7 +196,7 @@ wonkers-graphql/test/
 
 - [ ] Run unit tests
   ```bash
-  just -f devtools/Justfile test-wonkers-graphql
+  just -f devtools/tinybots/local/Justfile test-wonkers-graphql
   ```
 
 - [ ] Manual testing via GraphQL Playground

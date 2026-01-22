@@ -6,7 +6,7 @@
 - Template: [devdocs/agent/templates/create-plan.md](../../agent/templates/create-plan.md)
 - CI Config: [atlas/ci/docker-compose.yml](../../../atlas/ci/docker-compose.yml)
 - CI Test Script: [atlas/ci/test.sh](../../../atlas/ci/test.sh)
-- Main Justfile: [devtools/Justfile](../../../devtools/Justfile)
+- Main Justfile: [devtools/tinybots/local/Justfile](../../../devtools/tinybots/local/Justfile)
 
 ## 🎯 Objective
 

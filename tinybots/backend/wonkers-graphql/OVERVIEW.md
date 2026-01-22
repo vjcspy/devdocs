@@ -203,7 +203,3 @@ export const NewReportQuery = extendType({
 | Legacy SDL (DO NOT MODIFY) | `src/schema/typeDefs.ts` |
 | Server entrypoints | `src/server.ts`, `src/App.ts` |
 | Restructure plan | `devdocs/tinybots/wonkers-graphql/260120-Schema-Folder-Restructure.md` |
-
-## Run test
-
-Do project này integration test cần chạy trong docker, nên test chỉ có thể chạy được bằng command: `just -f devtools/Justfile test-wonkers-graphql;`

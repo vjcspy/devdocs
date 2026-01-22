@@ -342,7 +342,7 @@ Response: { id, residentId, robotId, hearableLocations }
 
 ### Phase 6: Testing & Documentation
 
-- [ ] **6.1** Run full test suite: `just -f devtools/Justfile test-sensara-adaptor`
+- [ ] **6.1** Run full test suite: `just -f devtools/tinybots/local/Justfile test-sensara-adaptor`
 - [ ] **6.2** Ensure lint/typecheck pass
 - [ ] **6.3** Update `devdocs/tinybots/sensara-adaptor/OVERVIEW.md` with new endpoints
 

@@ -2,10 +2,10 @@
 
 ## References
 
-- [Global Overview](/Users/kai/work/tinybots/devdocs/tinybots/backend/OVERVIEW.md)
+- [Global Overview](/Users/kai/work/tinybots/devdocs/tinybots/OVERVIEW.md)
 - [megazord-events OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/backend/megazord-events/OVERVIEW.md)
 - [sensara-adaptor OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/backend/sensara-adaptor/OVERVIEW.md)
-- [Similar Implementation Plan: PROD591 Add New Event Type](/Users/kai/work/tinybots/devdocs/tinybots/backendmegazord-events/251112-PROD591-add-new-event-type.md)
+- [Similar Implementation Plan: PROD591 Add New Event Type](/Users/kai/work/tinybots/devdocs/tinybots/backend/megazord-events/251112-PROD591-add-new-event-type.md)
 - [TinybotsEvent enum](/Users/kai/work/tinybots/tinybots/backend/tiny-internal-services/lib/model/events/TinybotsEvent.ts)
 - [SensaraNotificationType enum (shared)](/Users/kai/work/tinybots/tinybots/backend/tiny-internal-services/lib/model/sensara/SensaraNotificationDto.ts)
 - [SensaraNotificationType enum (local)](/Users/kai/work/tinybots/tinybots/backend/sensara-adaptor/src/model/sensara/NotificationResponse.ts)
@@ -72,7 +72,7 @@ this._pendingEventSource.addEventListener('StateExtramuralResponse', ...)
 
 | Event Type | Description | Status | Plan |
 |------------|-------------|--------|------|
-| `LastLocationResponse` | Real-time location updates from sensors | ❌ Not implemented | [260107-Streaming-Location-Events.md](/Users/kai/work/tinybots/devdocs/tinybots/backendsensara-adaptor/260107-Streaming-Location-Events.md) |
+| `LastLocationResponse` | Real-time location updates from sensors | ❌ Not implemented | [260107-Streaming-Location-Events.md](/Users/kai/work/tinybots/devdocs/tinybots/backend/sensara-adaptor/260107-Streaming-Location-Events.md) |
 
 **Hiện tại Location Events sử dụng POLLING** (qua `LocationPoller`, `ActivityPoller`), không phải streaming.
 
@@ -134,7 +134,7 @@ this._pendingEventSource.addEventListener('StateExtramuralResponse', ...)
 
 4. **SensaraEventsAdaptorService**: NO changes needed to `endpointsMapping` - that mapping is only for events we **register** with Sensara (polling), not for incoming notifications.
 
-5. **Testing**: All tests must run in Docker via `just -f devtools/Justfile test-sensara-adaptor`
+5. **Testing**: All tests must run in Docker via `just -f devtools/tinybots/local/Justfile test-sensara-adaptor`
 
 ---
 
@@ -402,10 +402,10 @@ it('should handle a DOOR_OPEN_TOO_LONG notification event', async () => {
 cd /Users/kai/work/tinybots/tinybots/backend
 
 # Run sensara-adaptor tests
-just -f devtools/Justfile test-sensara-adaptor
+just -f devtools/tinybots/local/Justfile test-sensara-adaptor
 
 # Run megazord-events tests (optional, to verify schema loading)
-just -f devtools/Justfile test-megazord-events
+just -f devtools/tinybots/local/Justfile test-megazord-events
 ```
 
 **Manual Verification Checklist:**

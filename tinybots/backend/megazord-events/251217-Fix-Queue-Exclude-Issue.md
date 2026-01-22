@@ -5,8 +5,8 @@
 - `/Users/kai/work/tinybots/tinybots/backend/megazord-events/src/models/domains/SubscriptionDomain.ts` - Domain model with problematic `@Exclude()` decorator
 - `/Users/kai/work/tinybots/tinybots/backend/megazord-events/src/services/EventSubscriptionService.ts` - Service using queue field for message routing
 - `/Users/kai/work/tinybots/tinybots/backend/megazord-events/src/controllers/EventSubscriptionsController.ts` - Controller exposing subscription endpoints
-- `/Users/kai/work/tinybots/devdocs/tinybots/backendmegazord-events/251210-Queue-Per-Subscription.md` - Original refactor plan
-- `/Users/kai/work/tinybots/devdocs/tinybots/backendmegazord-events/OVERVIEW.md` - Repository overview
+- `/Users/kai/work/tinybots/devdocs/tinybots/backend/megazord-events/251210-Queue-Per-Subscription.md` - Original refactor plan
+- `/Users/kai/work/tinybots/devdocs/tinybots/backend/megazord-events/OVERVIEW.md` - Repository overview
 
 ## User Requirements
 

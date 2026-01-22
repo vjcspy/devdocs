@@ -3,8 +3,8 @@
 ## References
 
 - [Global Overview](/Users/kai/work/tinybots/devdocs/tinybots/OVERVIEW.md)
-- [megazord-events OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/backendmegazord-events/OVERVIEW.md)
-- [sensara-adaptor OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/backendsensara-adaptor/OVERVIEW.md)
+- [megazord-events OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/backend/megazord-events/OVERVIEW.md)
+- [sensara-adaptor OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/backend/sensara-adaptor/OVERVIEW.md)
 - [TinybotsEvent enum](/Users/kai/work/tinybots/tinybots/backend/tiny-internal-services/lib/model/events/TinybotsEvent.ts)
 - [Event Schema Generator](/Users/kai/work/tinybots/tinybots/backend/megazord-events/schemas/gen.ts)
 - [Event Schemas Directory](/Users/kai/work/tinybots/tinybots/backend/megazord-events/schemas/events/)
