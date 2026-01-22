@@ -1,4 +1,4 @@
-## TL;DR
+# Tinybots Project
 
 - TinyBots is a set of backend services and Wonkers apps for telemetry, automation, and TaaS order flows.
 - This overview lists all 23 discovered repositories grouped by role with links to their repo overviews.
@@ -10,7 +10,7 @@
 - Customer and admin surfaces expose REST and GraphQL gateways backed by shared schemas and database migrations.
 - Shared libraries and tooling standardize middleware, HTTP clients, and contracts for consistent integrations.
 
-## Services:
+## Services
 
 ### Automation Core
 
@@ -88,80 +88,22 @@ just -f devtools/tinybots/local/Justfile log-<repo>
 
 > **For detailed setup and all available commands**, see: `devdocs/misc/devtools/tinybots/OVERVIEW.md`
 
+## Skills Reference
+
+TinyBots provides specialized skills for common development tasks. Skills are loaded on-demand to optimize context usage.
+
+| Skill | Path | Description |
+|-------|------|-------------|
+| database-access | `devdocs/agent/skills/tinybots/database-access/SKILL.md` | Database connection info, schema queries, and context gathering commands |
+| testing-guidelines | `devdocs/agent/skills/tinybots/testing-guidelines/SKILL.md` | Testing best practices, assertion patterns, and test structure guidelines |
+
 ## Database Access
 
-For tasks requiring database work (schema changes, queries, migrations), query the database directly to get current schema context before proposing changes.
+For tasks requiring database work (schema changes, queries, migrations), load the database-access skill:
 
-The project uses MySQL databases running via Docker Compose (`devtools/tinybots/local/docker-compose.yaml`):
-
-| Database | Service Name | Host (from host machine) | Port | Database Name | Root Password |
-|----------|-------------|--------------------------|------|---------------|---------------|
-| typ-e-db | mysql-typ-e-db | localhost | 1123 | tinybots | ICgVcbpYW731vY3UjexgAnuQ69Wv2DdN |
-| wonkers-db | mysql-wonkers-db | localhost | 1124 | dashboard | ICgVcbpYW731vY3UjexgAnuQ69Wv2DdN |
-| atlas-intelligence-db | mysql-atlas-intelligence-db | localhost | 1126 | analytics | ICgVcbpYW731vY3UjexgAnuQ69Wv2DdN |
-
-How to query database context:
-
-Step 1: ensure Docker services are running
-
-```bash
-cd devtools/tinybots/local && docker compose ps
-```
-
-If not running, start them:
-
-```bash
-cd devtools/tinybots/local && docker compose up -d mysql-typ-e-db mysql-wonkers-db
-```
-
-Step 2: query database schema/data
-
-```bash
-# Connect to typ-e-db (tinybots database) - interactive mode
-docker exec -it mysql-typ-e-db mysql -u root -pICgVcbpYW731vY3UjexgAnuQ69Wv2DdN tinybots
-
-# Connect to wonkers-db (dashboard database) - interactive mode
-docker exec -it mysql-wonkers-db mysql -u root -pICgVcbpYW731vY3UjexgAnuQ69Wv2DdN dashboard
-```
-
-Step 3: one-liner examples (non-interactive)
-
-```bash
-# List all tables in typ-e-db
-docker exec mysql-typ-e-db mysql -u root -pICgVcbpYW731vY3UjexgAnuQ69Wv2DdN tinybots -e "SHOW TABLES;"
-
-# Describe a specific table
-docker exec mysql-typ-e-db mysql -u root -pICgVcbpYW731vY3UjexgAnuQ69Wv2DdN tinybots -e "DESCRIBE users;"
-
-# Get full CREATE TABLE statement
-docker exec mysql-typ-e-db mysql -u root -pICgVcbpYW731vY3UjexgAnuQ69Wv2DdN tinybots -e "SHOW CREATE TABLE users\G"
-
-# List all tables in wonkers-db
-docker exec mysql-wonkers-db mysql -u root -pICgVcbpYW731vY3UjexgAnuQ69Wv2DdN dashboard -e "SHOW TABLES;"
-```
-
-Step 4: common queries for context gathering
-
-```sql
-SHOW TABLES;
-
-DESCRIBE table_name;
-
-SHOW CREATE TABLE table_name;
-
-SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA = 'tinybots' AND TABLE_NAME = 'your_table';
-
-SHOW TABLES LIKE '%pattern%';
-
-SELECT
-    TABLE_NAME, COLUMN_NAME, CONSTRAINT_NAME,
-    REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
-FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-WHERE REFERENCED_TABLE_NAME IS NOT NULL
-  AND TABLE_SCHEMA = 'tinybots';
-```
+- **Skill:** `devdocs/agent/skills/tinybots/database-access/SKILL.md`
+- Contains: Connection info, Docker commands, schema query examples
+- Databases: typ-e-db (tinybots), wonkers-db (dashboard), atlas-intelligence-db (analytics)
 
 ## Test Execution
 
@@ -182,7 +124,7 @@ When writing new tests for TinyBots repositories, follow the testing guidelines 
 - Use `deep.include` for object assertions (not individual field checks)
 - Follow Arrange-Act-Assert pattern
 
-Repository Coverage Table
+## Repository Coverage Table
 
 | Repository | Service Group | Overview Path | Status |
 | --- | --- | --- | --- |
