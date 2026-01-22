@@ -16,8 +16,8 @@
 - Reference pattern: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check/ci/`
 - Target repository: `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/`
 - Template document: `/Users/kai/work/tinybots/devdocs/agent/TEMPLATE.md`
-- Global standard: `/Users/kai/work/tinybots/devdocs/tinybots/backendOVERVIEW.md`
-- Repo standard: `/Users/kai/work/tinybots/devdocs/tinybots/backendazi-3-status-check-jobs/OVERVIEW.md`
+- Global standard: `/Users/kai/work/tinybots/devdocs/tinybots/OVERVIEW.md`
+- Repo standard: `/Users/kai/work/tinybots/devdocs/tinybots/backend/azi-3-status-check-jobs/OVERVIEW.md`
 
 ## User Requirements
 
@@ -614,7 +614,7 @@ Implementation completed on 2025-11-25
 
 **Files created** (14 files total):
 
-1. ✅ `/Users/kai/work/tinybots/devdocs/tinybots/backendazi-3-status-check-jobs/251125-Pipeline-Deployment.md` - This plan
+1. ✅ `/Users/kai/work/tinybots/devdocs/tinybots/backend/azi-3-status-check-jobs/251125-Pipeline-Deployment.md` - This plan
 2. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/Dockerfile`
 3. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/.dockerignore`
 4. ✅ `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/ci/ssh.config`

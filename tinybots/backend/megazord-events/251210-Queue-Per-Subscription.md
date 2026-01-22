@@ -8,8 +8,8 @@
 - `/Users/kai/work/tinybots/tinybots/backend/megazord-events/src/models/SQSConfig.ts` - SQS configuration models
 - `/Users/kai/work/tinybots/tinybots/backend/azi-3-status-check-jobs/config/custom-environment-variables.json` - Jobs consumer configuration
 - `/Users/kai/work/tinybots/tinybots/backend/tiny-internal-services/lib/services/EventService.ts` - Shared library event service
-- `/Users/kai/work/tinybots/devdocs/tinybots/backendOVERVIEW.md` - Global TinyBots architecture
-- `/Users/kai/work/tinybots/devdocs/tinybots/backendmegazord-events/OVERVIEW.md` - Megazord events service documentation
+- `/Users/kai/work/tinybots/devdocs/tinybots/OVERVIEW.md` - Global TinyBots architecture
+- `/Users/kai/work/tinybots/devdocs/tinybots/backend/megazord-events/OVERVIEW.md` - Megazord events service documentation
 
 ## User Requirements
 
@@ -890,7 +890,7 @@ aws sqs create-queue --queue-name status-queue-staging-azi-3-status-check-jobs
 
 **Task:** Update service documentation to reflect queue suffix feature
 
-**File:** `/Users/kai/work/tinybots/devdocs/tinybots/backendmegazord-events/OVERVIEW.md`
+**File:** `/Users/kai/work/tinybots/devdocs/tinybots/backend/megazord-events/OVERVIEW.md`
 
 **Section to Add/Update:**
 
@@ -952,7 +952,7 @@ const subscription = await megazordEventClient.subscribe(
 - No breaking changes to API contracts
 ```
 
-**File:** `/Users/kai/work/tinybots/devdocs/tinybots/backendazi-3-status-check-jobs/OVERVIEW.md`
+**File:** `/Users/kai/work/tinybots/devdocs/tinybots/backend/azi-3-status-check-jobs/OVERVIEW.md`
 
 **Section to Add:**
 
@@ -974,7 +974,7 @@ This prevents message collision with `azi-3-status-check` service that subscribe
 - Examples show correct queue address pattern
 - Migration notes cover all scenarios
 
-**File:** `/Users/kai/work/tinybots/devdocs/tinybots/backendazi-3-status-check-jobs/OVERVIEW.md`
+**File:** `/Users/kai/work/tinybots/devdocs/tinybots/backend/azi-3-status-check-jobs/OVERVIEW.md`
 
 **Section to Add:**
 

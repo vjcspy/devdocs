@@ -2,7 +2,7 @@
 
 ## References
 
-- [Global Overview](/Users/kai/work/tinybots/devdocs/tinybots/backendOVERVIEW.md)
+- [Global Overview](/Users/kai/work/tinybots/devdocs/tinybots/OVERVIEW.md)
 - [megazord-events OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/backendmegazord-events/OVERVIEW.md)
 - [sensara-adaptor OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/backendsensara-adaptor/OVERVIEW.md)
 - [TinybotsEvent enum](/Users/kai/work/tinybots/tinybots/backend/tiny-internal-services/lib/model/events/TinybotsEvent.ts)
