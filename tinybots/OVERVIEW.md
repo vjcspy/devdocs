@@ -90,39 +90,12 @@ just -f devtools/tinybots/local/Justfile log-<repo>
 
 ## Skills Reference
 
-TinyBots provides specialized skills for common development tasks. Skills are loaded on-demand to optimize context usage.
+Load skills **on-demand** when working on related tasks. Do not load proactively.
 
-| Skill | Path | Description |
-|-------|------|-------------|
-| database-access | `devdocs/agent/skills/tinybots/database-access/SKILL.md` | Database connection info, schema queries, and context gathering commands |
-| testing-guidelines | `devdocs/agent/skills/tinybots/testing-guidelines/SKILL.md` | Testing best practices, assertion patterns, and test structure guidelines |
-
-## Database Access
-
-For tasks requiring database work (schema changes, queries, migrations), load the database-access skill:
-
-- **Skill:** `devdocs/agent/skills/tinybots/database-access/SKILL.md`
-- Contains: Connection info, Docker commands, schema query examples
-- Databases: typ-e-db (tinybots), wonkers-db (dashboard), atlas-intelligence-db (analytics)
-
-## Test Execution
-
-> **CRITICAL:** All TinyBots tests can ONLY run inside Docker containers via `just` commands. Do NOT run tests directly on your local machine—they will fail due to missing infrastructure dependencies.
-
-```bash
-# Run tests for a repository
-just -f devtools/tinybots/local/Justfile test-<repo>
-```
-
-**For complete test execution instructions, troubleshooting, and available repositories**, see: `devdocs/agent/rules/tinybots/run-tests.md`
-
-## Writing Tests
-
-When writing new tests for TinyBots repositories, follow the testing guidelines skill for assertion patterns and best practices:
-
-- **Skill:** `devdocs/agent/skills/tinybots/testing-guidelines/SKILL.md`
-- Use `deep.include` for object assertions (not individual field checks)
-- Follow Arrange-Act-Assert pattern
+| Skill | Load When | Path |
+|-------|-----------|------|
+| database-access | Schema changes, migrations, DB queries | `devdocs/agent/skills/tinybots/database-access/SKILL.md` |
+| testing-guidelines | Writing or fixing tests | `devdocs/agent/skills/tinybots/testing-guidelines/SKILL.md` |
 
 ## Repository Coverage Table
 

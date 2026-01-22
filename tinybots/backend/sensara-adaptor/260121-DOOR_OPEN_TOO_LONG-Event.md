@@ -2,9 +2,9 @@
 
 ## References
 
-- [Global Overview](/Users/kai/work/tinybots/devdocs/tinybots/backendOVERVIEW.md)
-- [megazord-events OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/backendmegazord-events/OVERVIEW.md)
-- [sensara-adaptor OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/backendsensara-adaptor/OVERVIEW.md)
+- [Global Overview](/Users/kai/work/tinybots/devdocs/tinybots/backend/OVERVIEW.md)
+- [megazord-events OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/backend/megazord-events/OVERVIEW.md)
+- [sensara-adaptor OVERVIEW](/Users/kai/work/tinybots/devdocs/tinybots/backend/sensara-adaptor/OVERVIEW.md)
 - [Similar Implementation Plan: PROD591 Add New Event Type](/Users/kai/work/tinybots/devdocs/tinybots/backendmegazord-events/251112-PROD591-add-new-event-type.md)
 - [TinybotsEvent enum](/Users/kai/work/tinybots/tinybots/backend/tiny-internal-services/lib/model/events/TinybotsEvent.ts)
 - [SensaraNotificationType enum (shared)](/Users/kai/work/tinybots/tinybots/backend/tiny-internal-services/lib/model/sensara/SensaraNotificationDto.ts)
