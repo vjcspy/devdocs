@@ -53,3 +53,18 @@ Tránh:
 1. Trong editor, bấm button → console log “clicked”.
 2. Bước tiếp: thay console log bằng gọi `fetch` tới endpoint `ping`.
 3. Bước cuối: gọi endpoint create product và set `product_id` vào settings.
+
+## 7) Tip: JS Hook quan trọng
+
+Để chạy code khi widget của bạn được render trong preview (hoặc khi editor load), hook quan trọng nhất là:
+
+```javascript
+jQuery(window).on('elementor/frontend/init', function() {
+   elementorFrontend.hooks.addAction('frontend/element_ready/vocalmeet-product-creator.default', function($scope) {
+       // $scope là container của widget
+       // Code logic của bạn ở đây (bind click event, open popup, etc.)
+   });
+});
+```
+
+Lưu ý: Hook này chạy cả ở Editor preview và Frontend thực tế.

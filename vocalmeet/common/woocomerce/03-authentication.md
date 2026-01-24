@@ -52,3 +52,25 @@ Nếu gặp 401/403, checklist:
 1. Tạo key/secret trong WooCommerce → Settings → Advanced → REST API.
 2. Thử gọi create product từ server-side PHP trước (để tránh CORS/secret).
 3. Sau đó mới nối từ frontend qua custom endpoint.
+
+## 7) Tip: Local Development & Self-Signed Certs
+
+Khi chạy local với self-signed SSL, các request từ PHP (`wp_remote_post` hoặc WooCommerce Client Library) thường sẽ fail do lỗi verify SSL.
+
+Để fix nhanh cho môi trường dev, bạn cần disable SSL verification:
+
+```php
+// Thêm vào plugin main file (chỉ cho local dev!)
+add_filter('https_ssl_verify', '__return_false');
+```
+
+Nếu dùng thư viện `automattic/woocommerce` client:
+```php
+$woocommerce = new Client(
+    $url, $key, $secret,
+    [
+        'version' => 'wc/v3',
+        'verify_ssl' => false // Quan trọng cho local
+    ]
+);
+```

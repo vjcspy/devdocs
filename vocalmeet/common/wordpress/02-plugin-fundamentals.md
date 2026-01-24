@@ -14,6 +14,14 @@ Trong assessment, plugin là “container” chính để bạn:
 
 ## 2) Plugin header & entrypoint
 
+### Tip: Tạo plugin nhanh bằng WP-CLI
+Thay vì tạo file thủ công, bạn có thể dùng WP-CLI trong môi trường local để tạo nhanh cấu trúc chuẩn:
+
+```bash
+# Trong thư mục devtools/vocalmeet/local
+just wp scaffold plugin vocalmeet-woo-api --plugin_name="Vocalmeet Woo API" --plugin_description="Task 4.I-II"
+```
+
 Một plugin tối thiểu cần:
 - File PHP chính chứa plugin header (metadata)
 - Code bootstrap để register hooks
