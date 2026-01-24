@@ -88,6 +88,14 @@ just -f devtools/tinybots/local/Justfile log-<repo>
 
 > **For detailed setup and all available commands**, see: `devdocs/misc/devtools/tinybots/OVERVIEW.md`
 
+## Rules Reference
+
+Rules are **mandatory** and must be followed. Load the relevant rule **before** performing the task.
+
+| Rule | Load When | Path |
+|------|-----------|------|
+| run-tests | Running tests for any repository | `devdocs/agent/rules/tinybots/run-tests.md` |
+
 ## Skills Reference
 
 Load skills **on-demand** when working on related tasks. Do not load proactively.
