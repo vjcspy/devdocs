@@ -31,8 +31,10 @@ All projects follow this standard directory structure:
 │   └── <PROJECT_NAME>/         # Project-specific documentation
 │       ├── OVERVIEW.md         # **Global overview** for the entire project
 │       └── <DOMAIN>/           # Domain-specific documentation
-│           └── <REPO_NAME>/    # Per-repo context & plans
-│               └── OVERVIEW.md # Repository-specific overview & business context
+│           └── <REPO_NAME>/    # Per-repo context & documentation
+│               ├── OVERVIEW.md # Repository-specific overview & business context
+│               └── plans/      # Implementation plans for the repo
+│                   └── *.md    # Plan files: [YYMMDD-Ticket-Name].md
 │
 ├── devtools/                   # Development tools & utilities (multi-domain)
 │   ├── common/                 # Shared tools across domains
@@ -117,7 +119,8 @@ To keep context lean, additional rules are loaded **only when needed**:
 
 - **Source of Truth:** Use `devdocs/agent/templates/create-plan.md` as the canonical structure.
 - **Output:** Generate the full plan content matching the template.
-- **Naming Convention:** Propose a filename strictly following: `devdocs/<PROJECT_NAME>/<DOMAIN>/<REPO_NAME>/[YYMMDD-Ticket-Name].md`.
+- **Output Location:** Plans must be stored in the `plans/` subfolder within the repo documentation.
+- **Naming Convention:** Propose a filename strictly following: `devdocs/<PROJECT_NAME>/<DOMAIN>/<REPO_NAME>/plans/[YYMMDD-Ticket-Name].md`.
 
 ### Task: `Implementation / Refactoring`
 
