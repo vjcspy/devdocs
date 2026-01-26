@@ -403,3 +403,69 @@ wp-content/plugins/vocalmeet-hooks-lab/
 - “Một file = một nhóm trách nhiệm”
 - Entry point không chứa logic; logic nằm trong class/method có tên rõ
 - Hook registrations tập trung ở `register()` để dễ đọc lifecycle
+
+## 7) Curl test REST API (Hooks Lab plugin)
+
+Các endpoint theo plan:
+
+- `GET  /wp-json/vocalmeet/v1/hooks-lab/ping` (public)
+- `POST /wp-json/vocalmeet/v1/hooks-lab/reset` (admin)
+- `POST /wp-json/vocalmeet/v1/hooks-lab/trace` (admin, requires `enabled`)
+
+### 7.1) Set biến môi trường (không hardcode credentials)
+
+```bash
+export WP_BASE_URL='http://localhost'
+export WP_USER='admin'
+export WP_APP_PASS='PASTE_YOUR_APPLICATION_PASSWORD_HERE'
+```
+
+Lưu ý:
+
+- Application Password trong WP admin thường hiển thị có khoảng trắng; có thể giữ nguyên nhưng phải bọc trong quotes.
+- Không commit credentials vào git và không paste trực tiếp vào tài liệu trong repo.
+
+### 7.2) Ping (public)
+
+```bash
+curl -sS "${WP_BASE_URL}/wp-json/vocalmeet/v1/hooks-lab/ping" | jq
+```
+
+Nếu máy bạn chưa có `jq`:
+
+```bash
+curl -sS "${WP_BASE_URL}/wp-json/vocalmeet/v1/hooks-lab/ping"
+```
+
+### 7.3) Reset init order (admin + Application Password)
+
+```bash
+curl -sS \
+  -u "${WP_USER}:${WP_APP_PASS}" \
+  -X POST \
+  "${WP_BASE_URL}/wp-json/vocalmeet/v1/hooks-lab/reset" | jq
+```
+
+### 7.4) Toggle trace (admin + Application Password)
+
+Enable:
+
+```bash
+curl -sS \
+  -u "${WP_USER}:${WP_APP_PASS}" \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"enabled":true}' \
+  "${WP_BASE_URL}/wp-json/vocalmeet/v1/hooks-lab/trace" | jq
+```
+
+Disable:
+
+```bash
+curl -sS \
+  -u "${WP_USER}:${WP_APP_PASS}" \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"enabled":false}' \
+  "${WP_BASE_URL}/wp-json/vocalmeet/v1/hooks-lab/trace" | jq
+```
