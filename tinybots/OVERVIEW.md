@@ -40,7 +40,7 @@
 - tiny-backend-tools: Shared Node.js service scaffolding and middleware (devdocs/tinybots/backend/tiny-backend-tools/OVERVIEW.md)
 - tiny-internal-services: Shared DTOs and HTTP clients for TinyBots services (devdocs/tinybots/backend/tiny-internal-services/OVERVIEW.md)
 - tiny-internal-services-mocks: Mocks and stubs for integration tests (devdocs/tinybots/backend/tiny-internal-services-mocks/OVERVIEW.md)
-- tiny-specs: OpenAPI specs and generated validators (devdocs/tinybots/backend/tiny-specs/OVERVIEW.md)
+- tiny-specs: Centralized OpenAPI specs generating TypeScript types and validators for frontend/backend consistency (devdocs/tinybots/backend/tiny-specs/OVERVIEW.md)
 - typ-e: MySQL schema and Flyway migrations for robot scheduling and automation data (devdocs/tinybots/backend/typ-e/OVERVIEW.md)
 - wonkers-db: MySQL schema and Flyway migrations for dashboard and TaaS order data (devdocs/tinybots/backend/wonkers-db/OVERVIEW.md)
 
@@ -96,6 +96,14 @@ Rules are **mandatory** and must be followed. Load the relevant rule **before** 
 |------|-----------|------|
 | run-tests | Running tests for any repository | `devdocs/agent/rules/tinybots/run-tests.md` |
 
+## Commands Reference
+
+Commands provide step-by-step workflows for complex tasks. Load the command **before** starting the task.
+
+| Command | Use When | Path |
+|---------|----------|------|
+| update-tiny-specs | Adding/updating OpenAPI schemas, generating types for frontend | `devdocs/agent/commands/tinybots/update-tiny-specs.md` |
+
 ## Skills Reference
 
 Load skills **on-demand** when working on related tasks. Do not load proactively.
@@ -129,6 +137,6 @@ Load skills **on-demand** when working on related tasks. Do not load proactively
 | tiny-backend-tools | Shared Libraries, Tooling & Schemas | devdocs/tinybots/backend/tiny-backend-tools/OVERVIEW.md | Present |
 | tiny-internal-services | Shared Libraries, Tooling & Schemas | devdocs/tinybots/backend/tiny-internal-services/OVERVIEW.md | Present |
 | tiny-internal-services-mocks | Shared Libraries, Tooling & Schemas | devdocs/tinybots/backend/tiny-internal-services-mocks/OVERVIEW.md | Present |
-| tiny-specs | Shared Libraries, Tooling & Schemas | devdocs/tinybots/backend/tiny-specs/OVERVIEW.md | Missing |
+| tiny-specs | Shared Libraries, Tooling & Schemas | devdocs/tinybots/backend/tiny-specs/OVERVIEW.md | Present |
 | typ-e | Shared Libraries, Tooling & Schemas | devdocs/tinybots/backend/typ-e/OVERVIEW.md | Present |
 | wonkers-db | Shared Libraries, Tooling & Schemas | devdocs/tinybots/backend/wonkers-db/OVERVIEW.md | Present |
